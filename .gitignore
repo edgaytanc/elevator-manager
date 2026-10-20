@@ -1,0 +1,31 @@
+# Construcción y registros generados
+/target/
+/logs/
+*.class
+*.log
+*.lck
+
+# Configuración local de otros IDE
+/.idea/
+*.iml
+/.classpath
+/.project
+/.settings/
+
+# Conservar únicamente configuración compartida de VS Code
+/.vscode/*
+!/.vscode/settings.json
+!/.vscode/extensions.json
+
+# Archivos del sistema y temporales
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*~
+
+# Configuración local y secretos
+.env
+.env.*
+!.env.example
