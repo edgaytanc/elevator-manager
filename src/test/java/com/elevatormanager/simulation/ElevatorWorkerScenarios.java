@@ -42,7 +42,7 @@ public final class ElevatorWorkerScenarios {
             check(worker.submit(destination(1, 2)), "Envío admitido al buzón.");
             accepted(worker);
             check(worker.snapshot().cabinRequests().size() == 1, "Señal despierta al consumidor.");
-            check(worker.snapshot().currentFloor() == 1, "T22 aún no desplaza la cabina.");
+            check(worker.snapshot().currentFloor() == 1, "No cambia de piso antes del plazo.");
         } finally { finish(worker); }
     }
 
@@ -136,7 +136,7 @@ public final class ElevatorWorkerScenarios {
     }
 
     private static ElevatorWorker worker(int id) {
-        return new ElevatorWorker(id, new SimulationConfig(2, 500, 100, 100), 0);
+        return new ElevatorWorker(id, new SimulationConfig(2, 500, 10_000, 100), 0);
     }
 
     private static Command destination(int id, int floor) {

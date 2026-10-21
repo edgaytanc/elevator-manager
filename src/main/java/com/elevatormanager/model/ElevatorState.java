@@ -7,11 +7,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /**
- * Estado privado de una cabina. No es thread-safe: su futuro ElevatorWorker
- * será el único propietario; otros hilos leerán snapshots publicados.
+ * Estado privado, con un único escritor: su ElevatorWorker.
+ * Los demás hilos solo reciben snapshots inmutables.
  */
 public final class ElevatorState {
     private final int id;
@@ -21,6 +23,9 @@ public final class ElevatorState {
     private int currentFloor = 1;
     private Direction direction = Direction.UP;
     private ElevatorPhase phase = ElevatorPhase.IDLE;
+    private int nextFloor;
+    private int committedFloor;
+    private long legStartedNanos;
     private final Map<UUID, CabinRequest> cabinRequests = new LinkedHashMap<>();
     private final Map<UUID, HallRequest> hallRequests = new LinkedHashMap<>();
 
@@ -44,13 +49,82 @@ public final class ElevatorState {
     public Direction getDirection() { return direction; }
     public ElevatorPhase getPhase() { return phase; }
 
+    public OptionalInt getCommittedFloor() {
+        return committedFloor == 0 ? OptionalInt.empty() : OptionalInt.of(committedFloor);
+    }
+
+    /** Primitiva física; el planificador autoriza el objetivo antes de invocarla. */
+    public boolean beginJourney(int targetFloor, long nowNanos) {
+        if (targetFloor < 1 || targetFloor > config.floorCount()) {
+            throw new IllegalArgumentException("Objetivo fuera del edificio.");
+        }
+        if (phase != ElevatorPhase.IDLE || committedFloor != 0) {
+            throw new IllegalStateException("Ya existe movimiento o recorrido comprometido.");
+        }
+        if (targetFloor == currentFloor) { return false; }
+        long nextRevision = Math.incrementExact(revision);
+        direction = targetFloor > currentFloor ? Direction.UP : Direction.DOWN;
+        committedFloor = targetFloor;
+        startLeg(nowNanos);
+        revision = nextRevision;
+        return true;
+    }
+
+    /** Inicia solo el siguiente tramo del compromiso vigente, sin cambiar de sentido. */
+    public void beginNextLeg(long nowNanos) {
+        if (phase != ElevatorPhase.IDLE || committedFloor == 0) {
+            throw new IllegalStateException("No existe un siguiente tramo autorizado.");
+        }
+        long nextRevision = Math.incrementExact(revision);
+        startLeg(nowNanos);
+        revision = nextRevision;
+    }
+
+    private void startLeg(long nowNanos) {
+        long candidate = (long) currentFloor + direction.floorDelta();
+        if (candidate < 1 || candidate > config.floorCount()
+                || (direction == Direction.UP && candidate > committedFloor)
+                || (direction == Direction.DOWN && candidate < committedFloor)) {
+            throw new IllegalStateException("Tramo fuera del recorrido comprometido.");
+        }
+        nextFloor = (int) candidate;
+        legStartedNanos = nowNanos;
+        phase = ElevatorPhase.MOVING;
+    }
+
+    /** Lectura temporal pura. La diferencia soporta el wrap normal de nanoTime. */
+    public long movementRemainingNanos(long nowNanos) {
+        if (phase != ElevatorPhase.MOVING) { return 0L; }
+        long elapsed = nowNanos - legStartedNanos;
+        if (elapsed < 0) {
+            throw new IllegalArgumentException("Reloj retrocedido o intervalo no representable.");
+        }
+        long duration = config.movementTimeMillis() * 1_000_000L;
+        return elapsed >= duration ? 0L : duration - elapsed;
+    }
+
+    /** Confirma como máximo una llegada. El tiempo sobrante no adelanta otro piso. */
+    public boolean completeLegIfDue(long nowNanos) {
+        if (phase != ElevatorPhase.MOVING || movementRemainingNanos(nowNanos) != 0) {
+            return false;
+        }
+        long nextRevision = Math.incrementExact(revision);
+        currentFloor = nextFloor;
+        nextFloor = 0;
+        phase = ElevatorPhase.IDLE;
+        if (currentFloor == committedFloor) { committedFloor = 0; }
+        revision = nextRevision;
+        return true;
+    }
+
     /** Capturar solo desde el hilo propietario; referenceNanos usa reloj monotónico. */
     public ElevatorSnapshot snapshot(long referenceNanos) {
         return new ElevatorSnapshot(id, config, epoch, revision, currentFloor,
-                java.util.OptionalInt.empty(), direction, phase,
-                java.util.Optional.empty(), java.util.Optional.empty(),
-                ElevatorSnapshot.Mode.NORMAL, 0L, 0L, referenceNanos,
-                java.util.OptionalInt.empty(), getCabinRequests(), getHallRequests());
+                nextFloor == 0 ? OptionalInt.empty() : OptionalInt.of(nextFloor), direction, phase,
+                Optional.empty(), Optional.empty(), ElevatorSnapshot.Mode.NORMAL,
+                phase == ElevatorPhase.MOVING ? config.movementTimeMillis() * 1_000_000L : 0L,
+                movementRemainingNanos(referenceNanos), referenceNanos,
+                getCommittedFloor(), getCabinRequests(), getHallRequests());
     }
 
     /** Copia de destinos internos, en orden de incorporación; no es orden de ruta. */

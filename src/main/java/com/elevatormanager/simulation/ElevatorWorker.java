@@ -1,6 +1,7 @@
 package com.elevatormanager.simulation;
 
 import com.elevatormanager.model.ElevatorSnapshot;
+import com.elevatormanager.model.ElevatorPhase;
 import com.elevatormanager.model.ElevatorState;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.protocol.Command;
@@ -18,8 +19,8 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T22: un hilo y un buzón por cabina. Incorpora solicitudes a la agenda;
- * el desplazamiento y el servicio se implementarán en T23 y T24.
+ * T23: un hilo y un buzón por cabina, con desplazamiento por tramos.
+ * Al alcanzar el primer objetivo espera el servicio que incorporará T24.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -38,6 +39,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
+    private boolean awaitingService;
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
         state = new ElevatorState(id, config, epoch);
@@ -119,18 +121,32 @@ public final class ElevatorWorker implements AutoCloseable {
     private void runLoop() {
         try {
             while (true) {
-                Result result;
+                Result result = null;
                 lock.lockInterruptibly();
                 try {
-                    while (inbox.isEmpty() && lifecycle == Lifecycle.RUNNING) {
+                    if (lifecycle != Lifecycle.RUNNING) { break; }
+                    long now = System.nanoTime();
+                    if (state.getPhase() == ElevatorPhase.MOVING
+                            && state.completeLegIfDue(now)) {
+                        published.set(state.snapshot(now));
+                        if (state.getCommittedFloor().isPresent()) {
+                            state.beginNextLeg(now);
+                            published.set(state.snapshot(now));
+                        } else {
+                            awaitingService = true;
+                        }
+                    } else if (!inbox.isEmpty()) {
+                        result = admit(inbox.removeFirst());
+                    } else if (state.getPhase() == ElevatorPhase.MOVING) {
+                        long remaining = state.movementRemainingNanos(System.nanoTime());
+                        if (remaining > 0) { available.awaitNanos(remaining); }
+                    } else {
                         available.await();
                     }
-                    if (lifecycle != Lifecycle.RUNNING) { break; }
-                    result = admit(inbox.removeFirst());
                 } finally {
                     lock.unlock();
                 }
-                results.add(result);
+                if (result != null) { results.add(result); }
             }
         } catch (InterruptedException exception) {
             failure = exception;
@@ -177,6 +193,16 @@ public final class ElevatorWorker implements AutoCloseable {
                 throw new IllegalArgumentException("Comando no soportado.");
             }
             published.set(state.snapshot(System.nanoTime()));
+            if (added && !awaitingService && state.getPhase() == ElevatorPhase.IDLE
+                    && state.getCommittedFloor().isEmpty()) {
+                int target = command instanceof Command.Pickup pickup
+                        ? pickup.request().getFloor()
+                        : ((Command.Destination) command).request().getFloor();
+                if (!state.beginJourney(target, System.nanoTime())) {
+                    awaitingService = true;
+                }
+                published.set(state.snapshot(System.nanoTime()));
+            }
             return new Result(command, Outcome.ACCEPTED,
                     added ? "Incorporado a la agenda." : "Identidad ya pendiente.");
         } catch (IllegalArgumentException exception) {
