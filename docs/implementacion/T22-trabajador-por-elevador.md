@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-21, Guatemala.
 - **Versión:** 0.1.0.
 - **Fase:** 4 — Construir el motor concurrente de elevadores.
-- **Estado:** implementación preparada; siete escenarios ejecutados; pendiente de integración y regresión Maven en el proyecto de David.
+- **Estado:** Implementada; siete escenarios ejecutados; Terminada integración y regresión Maven en el proyecto de David.
 
 ## 1. Continuidad recuperada
 
