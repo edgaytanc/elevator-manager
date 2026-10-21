@@ -179,28 +179,28 @@ elevator-manager/
 
 **Entrada:** enunciado disponible. **Salida:** requisitos y decisiones trazables. **Dependencias:** ninguna. **Prioridad:** P0.
 
-- [ ] **T01 — Convertir el enunciado en requisitos verificables.** Etiqueta: BASE. Enumerar configuración, elevadores, manejador, GUI, carga, logs, estructura y extras. **Aceptación:** cada obligación tiene una comprobación prevista y se distinguen propuestas de requisitos literales.
-- [ ] **T02 — Definir semántica de los controles.** Etiqueta: BASE. Documentar Start, Stop, Reset, importación, cierre y tratamiento de solicitudes por estado; reservar pausa/reanudación. **Aceptación:** tabla de transiciones y acciones válidas sin contradicciones.
-- [ ] **T03 — Definir casos de uso y ejemplos manuales.** Etiqueta: BASE. Preparar secuencias de llamada externa, destino interno, parada intermedia y retorno por reset. **Aceptación:** cada secuencia tiene configuración, acciones y resultados observables esperados.
-- [ ] **T04 — Crear el tablero y cargar las tarjetas.** Etiqueta: CALIDAD. Crear columnas, etiquetas, IDs y dependencias de este documento. **Aceptación:** T01..T80 están identificadas una sola vez y los tres extras son visibles.
+- [x] **T01 — Convertir el enunciado en requisitos verificables.** Etiqueta: BASE. Enumerar configuración, elevadores, manejador, GUI, carga, logs, estructura y extras. **Aceptación:** cada obligación tiene una comprobación prevista y se distinguen propuestas de requisitos literales.
+- [x] **T02 — Definir semántica de los controles.** Etiqueta: BASE. Documentar Start, Stop, Reset, importación, cierre y tratamiento de solicitudes por estado; reservar pausa/reanudación. **Aceptación:** tabla de transiciones y acciones válidas sin contradicciones.
+- [x] **T03 — Definir casos de uso y ejemplos manuales.** Etiqueta: BASE. Preparar secuencias de llamada externa, destino interno, parada intermedia y retorno por reset. **Aceptación:** cada secuencia tiene configuración, acciones y resultados observables esperados.
+- [x] **T04 — Crear el tablero y cargar las tarjetas.** Etiqueta: CALIDAD. Crear columnas, etiquetas, IDs y dependencias de este documento. **Aceptación:** T01..T80 están identificadas una sola vez y los tres extras son visibles.
 
 ### Fase 1 — Preparar el entorno y dependencias
 
 **Entrada:** alcance definido. **Salida:** herramientas y proyecto mínimo comprobados. **Dependencias:** fase 0. **Prioridad:** P0.
 
-- [ ] **T05 — Instalar y seleccionar el JDK.** Etiqueta: BASE. Instalar JDK completo y alinear `JAVA_HOME`, `PATH` e IDE. **Aceptación:** `java`, `javac` y `jar` funcionan y corresponden al JDK elegido.
-- [ ] **T06 — Instalar y verificar Maven.** Etiqueta: BASE. Configurar acceso a repositorios de dependencias. **Aceptación:** `mvn -version` usa el JDK correcto y una construcción mínima resuelve sus plugins.
-- [ ] **T07 — Configurar IDE y control de versiones.** Etiqueta: CALIDAD. Abrir proyecto Maven, UTF-8, depurador y repositorio Git. **Aceptación:** se puede compilar desde IDE y terminal, y existe un commit inicial sin archivos temporales.
-- [ ] **T08 — Configurar `pom.xml`.** Etiqueta: BASE. Fijar nivel Java 17, codificación, plugins de compilación, pruebas y JAR con `Main-Class`; agregar JUnit compatible solo en pruebas. **Aceptación:** `mvn clean verify` pasa en el esqueleto y las versiones están fijadas.
-- [ ] **T09 — Verificar herramientas de escritorio, hilos y logging.** Etiqueta: BASE. Ejecutar una comprobación temporal de ventana Swing, hilo independiente y registro a consola/archivo. **Aceptación:** funcionan en el equipo de desarrollo; documentar si se requiere sesión gráfica y acceso de escritura.
+- [x] **T05 — Instalar y seleccionar el JDK.** Etiqueta: BASE. Instalar JDK completo y alinear `JAVA_HOME`, `PATH` e IDE. **Aceptación:** `java`, `javac` y `jar` funcionan y corresponden al JDK elegido.
+- [x] **T06 — Instalar y verificar Maven.** Etiqueta: BASE. Configurar acceso a repositorios de dependencias. **Aceptación:** `mvn -version` usa el JDK correcto y una construcción mínima resuelve sus plugins.
+- [x] **T07 — Configurar IDE y control de versiones.** Etiqueta: CALIDAD. Abrir proyecto Maven, UTF-8, depurador y repositorio Git. **Aceptación:** se puede compilar desde IDE y terminal, y existe un commit inicial sin archivos temporales.
+- [x] **T08 — Configurar `pom.xml`.** Etiqueta: BASE. Fijar nivel Java 17, codificación, plugins de compilación, pruebas y JAR con `Main-Class`; agregar JUnit compatible solo en pruebas. **Aceptación:** `mvn clean verify` pasa en el esqueleto y las versiones están fijadas.
+- [x] **T09 — Verificar herramientas de escritorio, hilos y logging.** Etiqueta: BASE. Ejecutar una comprobación temporal de ventana Swing, hilo independiente y registro a consola/archivo. **Aceptación:** funcionan en el equipo de desarrollo; documentar si se requiere sesión gráfica y acceso de escritura.
 
 ### Fase 2 — Crear carpetas y diseñar la arquitectura
 
 **Entrada:** proyecto mínimo construible. **Salida:** estructura y contratos claros. **Dependencias:** fase 1. **Prioridad:** P0.
 
-- [ ] **T10 — Crear la estructura del proyecto.** Etiqueta: BASE. Crear paquetes y carpetas de fuentes, pruebas, recursos, ejemplos, documentación y evidencias de la sección 4. **Aceptación:** rutas y declaraciones `package` coinciden; los generados quedan excluidos de Git.
-- [ ] **T11 — Crear la entrada `ElevatorManager`.** Etiqueta: BASE. Preparar `main`, arranque gráfico en EDT y composición de dependencias. **Aceptación:** se abre una ventana mínima tanto desde IDE como desde el JAR construido.
-- [ ] **T12 — Diseñar componentes y contratos.** Etiqueta: BASE. Documentar flujo GUI → controlador → manejador → elevador → eventos, con separación del algoritmo y del protocolo. **Aceptación:** cada responsabilidad tiene propietario y las clases del dominio no dependen de Swing.
+- [x] **T10 — Crear la estructura del proyecto.** Etiqueta: BASE. Crear paquetes y carpetas de fuentes, pruebas, recursos, ejemplos, documentación y evidencias de la sección 4. **Aceptación:** rutas y declaraciones `package` coinciden; los generados quedan excluidos de Git.
+- [x] **T11 — Crear la entrada `ElevatorManager`.** Etiqueta: BASE. Preparar `main`, arranque gráfico en EDT y composición de dependencias. **Aceptación:** se abre una ventana mínima tanto desde IDE como desde el JAR construido.
+- [x] **T12 — Diseñar componentes y contratos.** Etiqueta: BASE. Documentar flujo GUI → controlador → manejador → elevador → eventos, con separación del algoritmo y del protocolo. **Aceptación:** cada responsabilidad tiene propietario y las clases del dominio no dependen de Swing.
 - [ ] **T13 — Diseñar la herencia de solicitudes.** Etiqueta: BASE. Definir `Request`, `HallRequest`, `CabinRequest` y el comportamiento polimórfico que utilizará la aplicación. **Aceptación:** la relación «es una solicitud» es válida y hay un flujo previsto que usa el tipo base.
 - [ ] **T14 — Diseñar sincronización y estado publicado.** Etiqueta: BASE. Definir colas, bloqueo del estado, condiciones para espera y snapshots; fijar orden de bloqueos o evitar anidarlos. **Aceptación:** ninguna colección mutable se comparte sin protección y no se espera una respuesta de otro hilo sosteniendo un bloqueo global.
 - [ ] **T15 — Definir invariantes y transiciones.** Etiqueta: BASE. Describir piso en tránsito, destino comprometido, atención por sentido, finalización de reset y cierre. **Aceptación:** se pueden derivar pruebas concretas y se resuelven casos en límites del edificio.
