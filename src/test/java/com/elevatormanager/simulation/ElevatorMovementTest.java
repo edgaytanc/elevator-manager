@@ -13,8 +13,8 @@ class ElevatorMovementTest {
     @Test void snapshotsDoNotConfirmArrivals() { ElevatorMovementScenarios.snapshotsDoNotConfirmArrivals(); }
     @Test void clockWrapAndMaximumDuration() { ElevatorMovementScenarios.clockWrapAndMaximumDuration(); }
     @Test void singleFloorAndCurrentFloor() { ElevatorMovementScenarios.singleFloorAndCurrentFloor(); }
-    @Test void workerMovesWithoutServingRequests() throws Exception {
-        ElevatorMovementScenarios.workerMovesWithoutServingRequests();
+    @Test void workerMovesAndStartsService() throws Exception {
+        ElevatorMovementScenarios.workerMovesAndStartsService();
     }
     @Test void closeWakesTimedWait() throws Exception { ElevatorMovementScenarios.closeWakesTimedWait(); }
 }

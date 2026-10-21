@@ -4,6 +4,7 @@ import com.elevatormanager.model.request.CabinRequest;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.model.request.Request;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,6 +27,7 @@ public final class ElevatorState {
     private int nextFloor;
     private int committedFloor;
     private long legStartedNanos;
+    private long dwellStartedNanos;
     private final Map<UUID, CabinRequest> cabinRequests = new LinkedHashMap<>();
     private final Map<UUID, HallRequest> hallRequests = new LinkedHashMap<>();
 
@@ -95,12 +97,90 @@ public final class ElevatorState {
     /** Lectura temporal pura. La diferencia soporta el wrap normal de nanoTime. */
     public long movementRemainingNanos(long nowNanos) {
         if (phase != ElevatorPhase.MOVING) { return 0L; }
-        long elapsed = nowNanos - legStartedNanos;
+        return remaining(legStartedNanos, config.movementTimeMillis(), nowNanos);
+    }
+
+    public long dwellRemainingNanos(long nowNanos) {
+        if (phase != ElevatorPhase.DWELLING) { return 0L; }
+        return remaining(dwellStartedNanos, config.dwellTimeMillis(), nowNanos);
+    }
+
+    public long phaseRemainingNanos(long nowNanos) {
+        return phase == ElevatorPhase.DWELLING
+                ? dwellRemainingNanos(nowNanos) : movementRemainingNanos(nowNanos);
+    }
+
+    private static long remaining(long startedNanos, long durationMillis, long nowNanos) {
+        long elapsed = nowNanos - startedNanos;
         if (elapsed < 0) {
             throw new IllegalArgumentException("Reloj retrocedido o intervalo no representable.");
         }
-        long duration = config.movementTimeMillis() * 1_000_000L;
+        long duration = durationMillis * 1_000_000L;
         return elapsed >= duration ? 0L : duration - elapsed;
+    }
+
+    /** Abre una parada solo si existe servicio compatible en este piso. */
+    public List<Request> beginDwell(Direction serviceDirection, long nowNanos) {
+        Objects.requireNonNull(serviceDirection, "serviceDirection");
+        if (phase != ElevatorPhase.IDLE) {
+            throw new IllegalStateException("La parada exige una cabina alineada y libre.");
+        }
+        if (committedFloor != 0 && serviceDirection != direction) {
+            throw new IllegalStateException("No se puede invertir un recorrido comprometido.");
+        }
+        List<Request> served = compatibleRequests(serviceDirection);
+        if (served.isEmpty()) { return served; }
+        long nextRevision = Math.incrementExact(revision);
+        direction = serviceDirection;
+        dwellStartedNanos = nowNanos;
+        phase = ElevatorPhase.DWELLING;
+        removeServed(served);
+        revision = nextRevision;
+        return served;
+    }
+
+    /** Incorpora a una parada todavía abierta, sin reiniciar su duración. */
+    public List<Request> serveDuringDwell(long nowNanos) {
+        if (phase != ElevatorPhase.DWELLING || dwellRemainingNanos(nowNanos) == 0) {
+            return List.of();
+        }
+        List<Request> served = compatibleRequests(direction);
+        if (!served.isEmpty()) {
+            long nextRevision = Math.incrementExact(revision);
+            removeServed(served);
+            revision = nextRevision;
+        }
+        return served;
+    }
+
+    public boolean completeDwellIfDue(long nowNanos) {
+        if (phase != ElevatorPhase.DWELLING || dwellRemainingNanos(nowNanos) != 0) {
+            return false;
+        }
+        long nextRevision = Math.incrementExact(revision);
+        phase = ElevatorPhase.IDLE;
+        revision = nextRevision;
+        return true;
+    }
+
+    private List<Request> compatibleRequests(Direction serviceDirection) {
+        List<Request> served = new ArrayList<>();
+        for (CabinRequest request : cabinRequests.values()) {
+            if (request.getFloor() == currentFloor) { served.add(request); }
+        }
+        for (HallRequest request : hallRequests.values()) {
+            if (request.getFloor() == currentFloor && request.getDirection() == serviceDirection) {
+                served.add(request);
+            }
+        }
+        return List.copyOf(served);
+    }
+
+    private void removeServed(List<Request> served) {
+        for (Request request : served) {
+            cabinRequests.remove(request.getId());
+            hallRequests.remove(request.getId());
+        }
     }
 
     /** Confirma como máximo una llegada. El tiempo sobrante no adelanta otro piso. */
@@ -122,8 +202,12 @@ public final class ElevatorState {
         return new ElevatorSnapshot(id, config, epoch, revision, currentFloor,
                 nextFloor == 0 ? OptionalInt.empty() : OptionalInt.of(nextFloor), direction, phase,
                 Optional.empty(), Optional.empty(), ElevatorSnapshot.Mode.NORMAL,
-                phase == ElevatorPhase.MOVING ? config.movementTimeMillis() * 1_000_000L : 0L,
-                movementRemainingNanos(referenceNanos), referenceNanos,
+                switch (phase) {
+                    case MOVING -> config.movementTimeMillis() * 1_000_000L;
+                    case DWELLING -> config.dwellTimeMillis() * 1_000_000L;
+                    default -> 0L;
+                },
+                phaseRemainingNanos(referenceNanos), referenceNanos,
                 getCommittedFloor(), getCabinRequests(), getHallRequests());
     }
 

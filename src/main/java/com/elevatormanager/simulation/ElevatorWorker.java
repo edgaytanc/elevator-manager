@@ -4,6 +4,8 @@ import com.elevatormanager.model.ElevatorSnapshot;
 import com.elevatormanager.model.ElevatorPhase;
 import com.elevatormanager.model.ElevatorState;
 import com.elevatormanager.model.SimulationConfig;
+import com.elevatormanager.model.Direction;
+import com.elevatormanager.model.request.Request;
 import com.elevatormanager.protocol.Command;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -19,8 +21,8 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T23: un hilo y un buzón por cabina, con desplazamiento por tramos.
- * Al alcanzar el primer objetivo espera el servicio que incorporará T24.
+ * T24: movimiento y parada temporizados; servicio compatible por piso/sentido.
+ * La selección definitiva del recorrido se incorpora en T25.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -30,16 +32,22 @@ public final class ElevatorWorker implements AutoCloseable {
     /** Aceptación en agenda, nunca confirmación de llegada o servicio. */
     public record Result(Command command, Outcome outcome, String detail) { }
 
+    /** Hecho de servicio: apertura de parada o incorporación a una parada abierta. */
+    public record Service(int elevatorId, long epoch, long revision, int floor,
+            Direction direction, long referenceNanos, boolean openedStop, List<Request> requests) {
+        public Service { requests = List.copyOf(requests); }
+    }
+
     private final ElevatorState state;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition available = lock.newCondition();
     private final ArrayDeque<Command> inbox = new ArrayDeque<>();
     private final BlockingQueue<Result> results = new LinkedBlockingQueue<>();
+    private final BlockingQueue<Service> services = new LinkedBlockingQueue<>();
     private final AtomicReference<ElevatorSnapshot> published;
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
-    private boolean awaitingService;
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
         state = new ElevatorState(id, config, epoch);
@@ -91,6 +99,11 @@ public final class ElevatorWorker implements AutoCloseable {
         return Optional.ofNullable(results.poll(timeoutNanos(timeout), TimeUnit.NANOSECONDS));
     }
 
+    /** Canal fiable con un consumidor lógico; no esperar desde el EDT. */
+    public Optional<Service> awaitService(Duration timeout) throws InterruptedException {
+        return Optional.ofNullable(services.poll(timeoutNanos(timeout), TimeUnit.NANOSECONDS));
+    }
+
     /** Cierre local prioritario, idempotente y sin esperar al trabajador. */
     @Override
     public void close() {
@@ -122,6 +135,7 @@ public final class ElevatorWorker implements AutoCloseable {
         try {
             while (true) {
                 Result result = null;
+                List<Service> notifications = new ArrayList<>();
                 lock.lockInterruptibly();
                 try {
                     if (lifecycle != Lifecycle.RUNNING) { break; }
@@ -129,16 +143,17 @@ public final class ElevatorWorker implements AutoCloseable {
                     if (state.getPhase() == ElevatorPhase.MOVING
                             && state.completeLegIfDue(now)) {
                         published.set(state.snapshot(now));
-                        if (state.getCommittedFloor().isPresent()) {
-                            state.beginNextLeg(now);
-                            published.set(state.snapshot(now));
-                        } else {
-                            awaitingService = true;
-                        }
+                        continueWork(now, notifications);
+                    } else if (state.getPhase() == ElevatorPhase.DWELLING
+                            && state.completeDwellIfDue(now)) {
+                        published.set(state.snapshot(now));
+                        continueWork(now, notifications);
                     } else if (!inbox.isEmpty()) {
                         result = admit(inbox.removeFirst());
-                    } else if (state.getPhase() == ElevatorPhase.MOVING) {
-                        long remaining = state.movementRemainingNanos(System.nanoTime());
+                        continueWork(System.nanoTime(), notifications);
+                    } else if (state.getPhase() == ElevatorPhase.MOVING
+                            || state.getPhase() == ElevatorPhase.DWELLING) {
+                        long remaining = state.phaseRemainingNanos(System.nanoTime());
                         if (remaining > 0) { available.awaitNanos(remaining); }
                     } else {
                         available.await();
@@ -147,6 +162,7 @@ public final class ElevatorWorker implements AutoCloseable {
                     lock.unlock();
                 }
                 if (result != null) { results.add(result); }
+                for (Service notification : notifications) { services.add(notification); }
             }
         } catch (InterruptedException exception) {
             failure = exception;
@@ -193,21 +209,49 @@ public final class ElevatorWorker implements AutoCloseable {
                 throw new IllegalArgumentException("Comando no soportado.");
             }
             published.set(state.snapshot(System.nanoTime()));
-            if (added && !awaitingService && state.getPhase() == ElevatorPhase.IDLE
-                    && state.getCommittedFloor().isEmpty()) {
-                int target = command instanceof Command.Pickup pickup
-                        ? pickup.request().getFloor()
-                        : ((Command.Destination) command).request().getFloor();
-                if (!state.beginJourney(target, System.nanoTime())) {
-                    awaitingService = true;
-                }
-                published.set(state.snapshot(System.nanoTime()));
-            }
             return new Result(command, Outcome.ACCEPTED,
                     added ? "Incorporado a la agenda." : "Identidad ya pendiente.");
         } catch (IllegalArgumentException exception) {
             return new Result(command, Outcome.REJECTED, exception.getMessage());
         }
+    }
+
+    /** Transiciones locales: sin callbacks ni entrega de eventos bajo el lock. */
+    private void continueWork(long now, List<Service> notifications) {
+        if (state.getPhase() == ElevatorPhase.MOVING) { return; }
+        if (state.getPhase() == ElevatorPhase.DWELLING) {
+            List<Request> served = state.serveDuringDwell(now);
+            if (!served.isEmpty()) { recordService(served, false, now, notifications); }
+            return;
+        }
+        List<Request> served = state.beginDwell(state.getDirection(), now);
+        if (!served.isEmpty()) {
+            recordService(served, true, now, notifications);
+            return;
+        }
+        if (state.getCommittedFloor().isPresent()) {
+            state.beginNextLeg(now);
+        } else {
+            served = state.beginDwell(state.getDirection().opposite(), now);
+            if (!served.isEmpty()) {
+                recordService(served, true, now, notifications);
+                return;
+            }
+            // Continuidad provisional: internas y luego externas, en orden local.
+            // T25 sustituirá esta selección por la agenda ordenada por sentido.
+            Request next = !state.getCabinRequests().isEmpty()
+                    ? state.getCabinRequests().get(0)
+                    : state.getHallRequests().isEmpty() ? null : state.getHallRequests().get(0);
+            if (next != null) { state.beginJourney(next.getFloor(), now); }
+        }
+        published.set(state.snapshot(now));
+    }
+
+    private void recordService(List<Request> served, boolean openedStop, long now,
+            List<Service> notifications) {
+        published.set(state.snapshot(now));
+        notifications.add(new Service(state.getId(), state.getEpoch(), state.getRevision(),
+                state.getCurrentFloor(), state.getDirection(), now, openedStop, served));
     }
 
     private static long timeoutNanos(Duration timeout) {

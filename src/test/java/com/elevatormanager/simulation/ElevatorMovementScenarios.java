@@ -127,8 +127,8 @@ public final class ElevatorMovementScenarios {
         reject(IllegalArgumentException.class, () -> state.beginJourney(2, 0));
     }
 
-    public static void workerMovesWithoutServingRequests() throws Exception {
-        var worker = new ElevatorWorker(1, new SimulationConfig(1, 5, 40, 100), 0);
+    public static void workerMovesAndStartsService() throws Exception {
+        var worker = new ElevatorWorker(1, new SimulationConfig(1, 5, 40, 10_000), 0);
         try {
             worker.start();
             long beginning = System.nanoTime();
@@ -139,9 +139,11 @@ public final class ElevatorMovementScenarios {
             check(worker.awaitResult(Duration.ofSeconds(5)).orElseThrow().outcome()
                     == ElevatorWorker.Outcome.ACCEPTED, "Incorpora otro pendiente durante viaje.");
             var arrived = await(worker,
-                    s -> s.currentFloor() == 3 && s.phase() == ElevatorPhase.IDLE);
+                    s -> s.currentFloor() == 3 && s.phase() == ElevatorPhase.DWELLING);
             check(System.nanoTime() - beginning >= 80_000_000L, "Dos tramos completos.");
-            check(arrived.cabinRequests().size() == 2, "Llegada no atiende ni borra solicitudes.");
+            check(arrived.cabinRequests().size() == 1
+                    && arrived.cabinRequests().get(0).getFloor() == 1,
+                    "Servicio retira solo el destino alcanzado; conserva el pendiente detrás.");
             check(arrived.nextFloor().isEmpty() && arrived.committedFloor().isEmpty(),
                     "Fin físico del objetivo.");
             check(arrived.direction() == Direction.UP, "Pendiente detrás no interrumpe subida.");
@@ -163,7 +165,7 @@ public final class ElevatorMovementScenarios {
         adjacentAndDeadline(); lateWakeupDoesNotSkipFloors(); upwardAndDownwardJourney();
         invalidTargetsAreAtomic(); commitmentCannotBeReplacedMidJourney();
         snapshotsDoNotConfirmArrivals(); clockWrapAndMaximumDuration(); singleFloorAndCurrentFloor();
-        workerMovesWithoutServingRequests(); closeWakesTimedWait();
+        workerMovesAndStartsService(); closeWakesTimedWait();
         System.out.println("T23: 10 escenarios satisfactorios.");
     }
 
