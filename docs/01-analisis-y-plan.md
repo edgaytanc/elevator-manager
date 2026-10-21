@@ -209,12 +209,12 @@ elevator-manager/
 
 **Entrada:** contratos diseñados. **Salida:** dominio comprobable sin GUI. **Dependencias:** fase 2. **Prioridad:** P0.
 
-- [ ] **T16 — Implementar configuración inmutable.** Etiqueta: BASE. Modelar N, P y tiempos con validación centralizada. **Aceptación:** acepta N/P iguales a 1; rechaza cero, negativos, texto inválido y valores fuera del rango numérico soportado.
-- [ ] **T17 — Implementar dirección y estados.** Etiqueta: BASE. Separar dirección de movimiento del estado operativo: detenido no significa automáticamente dirección hacia arriba. **Aceptación:** no se mezclan estados de sistema con dirección ni estado de cabina.
-- [ ] **T18 — Implementar solicitudes con herencia.** Etiqueta: BASE. Crear los tipos base y derivados, identidad, piso y comportamiento polimórfico. **Aceptación:** se usa herencia de clases en ejecución y se validan dirección, piso e ID con el contexto correspondiente.
-- [ ] **T19 — Implementar el estado independiente de cada elevador.** Etiqueta: BASE. Agregar ID, piso, dirección, fase del movimiento y agenda interna/externa diferenciada. **Aceptación:** todos comienzan en piso 1/arriba y modificar una cabina no altera otra.
-- [ ] **T20 — Implementar comandos y snapshots.** Etiqueta: BASE. Establecer contratos tipados para recoger, destino interno, reset y publicación inmutable del estado. **Aceptación:** las vistas pueden leer un snapshot coherente sin modificar el modelo.
-- [ ] **T21 — Probar las reglas del modelo.** Etiqueta: CALIDAD. Cubrir límites, herencia funcional, identidad, duplicados y encapsulación. **Aceptación:** las pruebas verifican resultados observables y rechazos; no dependen de Swing ni de esperas reales largas.
+- [x] **T16 — Implementar configuración inmutable.** Etiqueta: BASE. Modelar N, P y tiempos con validación centralizada. **Aceptación:** acepta N/P iguales a 1; rechaza cero, negativos, texto inválido y valores fuera del rango numérico soportado.
+- [x] **T17 — Implementar dirección y estados.** Etiqueta: BASE. Separar dirección de movimiento del estado operativo: detenido no significa automáticamente dirección hacia arriba. **Aceptación:** no se mezclan estados de sistema con dirección ni estado de cabina.
+- [x] **T18 — Implementar solicitudes con herencia.** Etiqueta: BASE. Crear los tipos base y derivados, identidad, piso y comportamiento polimórfico. **Aceptación:** se usa herencia de clases en ejecución y se validan dirección, piso e ID con el contexto correspondiente.
+- [x] **T19 — Implementar el estado independiente de cada elevador.** Etiqueta: BASE. Agregar ID, piso, dirección, fase del movimiento y agenda interna/externa diferenciada. **Aceptación:** todos comienzan en piso 1/arriba y modificar una cabina no altera otra.
+- [x] **T20 — Implementar comandos y snapshots.** Etiqueta: BASE. Establecer contratos tipados para recoger, destino interno, reset y publicación inmutable del estado. **Aceptación:** las vistas pueden leer un snapshot coherente sin modificar el modelo.
+- [x] **T21 — Probar las reglas del modelo.** Etiqueta: CALIDAD. Cubrir límites, herencia funcional, identidad, duplicados y encapsulación. **Aceptación:** las pruebas verifican resultados observables y rechazos; no dependen de Swing ni de esperas reales largas.
 
 ### Fase 4 — Construir el motor concurrente de elevadores
 
