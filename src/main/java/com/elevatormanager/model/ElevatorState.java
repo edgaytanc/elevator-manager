@@ -44,6 +44,15 @@ public final class ElevatorState {
     public Direction getDirection() { return direction; }
     public ElevatorPhase getPhase() { return phase; }
 
+    /** Capturar solo desde el hilo propietario; referenceNanos usa reloj monotónico. */
+    public ElevatorSnapshot snapshot(long referenceNanos) {
+        return new ElevatorSnapshot(id, config, epoch, revision, currentFloor,
+                java.util.OptionalInt.empty(), direction, phase,
+                java.util.Optional.empty(), java.util.Optional.empty(),
+                ElevatorSnapshot.Mode.NORMAL, 0L, 0L, referenceNanos,
+                java.util.OptionalInt.empty(), getCabinRequests(), getHallRequests());
+    }
+
     /** Copia de destinos internos, en orden de incorporación; no es orden de ruta. */
     public List<CabinRequest> getCabinRequests() {
         return List.copyOf(cabinRequests.values());
