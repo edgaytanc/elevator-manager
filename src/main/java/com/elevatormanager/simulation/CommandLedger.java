@@ -6,6 +6,7 @@ import com.elevatormanager.model.request.CabinRequest;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.model.request.Request;
 import com.elevatormanager.protocol.Command;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,19 @@ public final class CommandLedger {
 
     public record Decision(Kind kind, String detail, Optional<UUID> canonicalRequestId,
             Optional<RequestStatus> requestStatus, boolean replay) { }
+
+    /** Un comando distinto queda satisfecho por un único servicio canónico. */
+    public record Completion(Command command, UUID canonicalRequestId) { }
+
+    private final List<Completion> completions = new ArrayList<>();
+    private final Map<UUID, List<Command>> awaitingService = new HashMap<>();
+
+    /** Solo el actor consume estas confirmaciones; una retransmisión no las recrea. */
+    public List<Completion> drainCompletions() {
+        List<Completion> ready = List.copyOf(completions);
+        completions.clear();
+        return ready;
+    }
 
     private record CommandKey(long epoch, long id) { }
     private record FunctionalKey(boolean cabin, int floor, Direction direction) { }
@@ -93,6 +107,14 @@ public final class CommandLedger {
             decision = reject(exception.getMessage());
         }
         commands.put(key, new History(command, decision));
+        if (decision.kind() != Kind.REJECTED) {
+            UUID canonical = decision.canonicalRequestId().orElseThrow();
+            if (decision.requestStatus().orElseThrow() == RequestStatus.SERVED) {
+                completions.add(new Completion(command, canonical));
+            } else {
+                awaitingService.computeIfAbsent(canonical, ignored -> new ArrayList<>()).add(command);
+            }
+        }
         return decision;
     }
 
@@ -108,6 +130,12 @@ public final class CommandLedger {
             Canonical canonical = requests.get(request.getId()).canonical();
             canonical.status = RequestStatus.SERVED;
             active.remove(functionalKey(request), canonical);
+            List<Command> waiting = awaitingService.remove(request.getId());
+            if (waiting != null) {
+                for (Command command : waiting) {
+                    completions.add(new Completion(command, request.getId()));
+                }
+            }
         }
     }
 

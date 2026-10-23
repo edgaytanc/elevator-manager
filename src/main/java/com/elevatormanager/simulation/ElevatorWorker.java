@@ -22,7 +22,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T26: admisión concurrente serializada y deduplicación de comandos/solicitudes.
+ * T27: ejecución serializada con eventos inmutables y ordenados por cabina.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -51,6 +51,10 @@ public final class ElevatorWorker implements AutoCloseable {
     private final ArrayDeque<Command> inbox = new ArrayDeque<>();
     private final BlockingQueue<Result> results = new LinkedBlockingQueue<>();
     private final BlockingQueue<Service> services = new LinkedBlockingQueue<>();
+    private final BlockingQueue<ExecutionEvent> events = new LinkedBlockingQueue<>();
+    private long eventSequence;
+    // Solo el actor construye y entrega este lote antes de la siguiente transición.
+    private final List<ExecutionEvent> eventBatch = new ArrayList<>();
     private final AtomicReference<ElevatorSnapshot> published;
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
@@ -113,6 +117,13 @@ public final class ElevatorWorker implements AutoCloseable {
         return Optional.ofNullable(services.poll(timeoutNanos(timeout), TimeUnit.NANOSECONDS));
     }
 
+    /** Flujo completo, fiable en memoria, con un único consumidor lógico por cabina.
+     * No esperar desde el EDT. No existe orden global entre cabinas.
+     */
+    public Optional<ExecutionEvent> awaitEvent(Duration timeout) throws InterruptedException {
+        return Optional.ofNullable(events.poll(timeoutNanos(timeout), TimeUnit.NANOSECONDS));
+    }
+
     /** Cierre local prioritario, idempotente y sin esperar al trabajador. */
     @Override
     public void close() {
@@ -155,10 +166,12 @@ public final class ElevatorWorker implements AutoCloseable {
                             completedSweep = Optional.of(state.getDirection());
                         }
                         published.set(state.snapshot(now));
+                        emit(ExecutionEvent.Type.ARRIVED, now);
                         continueWork(now, notifications);
                     } else if (state.getPhase() == ElevatorPhase.DWELLING
                             && state.completeDwellIfDue(now)) {
                         published.set(state.snapshot(now));
+                        emit(ExecutionEvent.Type.STOP_ENDED, now);
                         continueWork(now, notifications);
                     } else if (!inbox.isEmpty()) {
                         result = admit(inbox.removeFirst());
@@ -173,6 +186,7 @@ public final class ElevatorWorker implements AutoCloseable {
                 } finally {
                     lock.unlock();
                 }
+                flushEvents();
                 if (result != null) { results.add(result); }
                 for (Service notification : notifications) { services.add(notification); }
             }
@@ -192,8 +206,13 @@ public final class ElevatorWorker implements AutoCloseable {
                 lock.unlock();
             }
             for (Command command : abandoned) {
-                results.add(new Result(command, Outcome.REJECTED, "Trabajador finalizado."));
+                Result rejected = new Result(command, Outcome.REJECTED, "Trabajador finalizado.");
+                emitAdmission(rejected, System.nanoTime());
+                results.add(rejected);
             }
+            emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
+                    : ExecutionEvent.Type.WORKER_FAILED, System.nanoTime());
+            flushEvents();
         }
     }
 
@@ -206,8 +225,12 @@ public final class ElevatorWorker implements AutoCloseable {
             case DUPLICATE -> Outcome.DUPLICATE;
             case REJECTED -> Outcome.REJECTED;
         };
-        return new Result(command, outcome, decision.detail(), decision.canonicalRequestId(),
+        Result result = new Result(command, outcome, decision.detail(), decision.canonicalRequestId(),
                 decision.requestStatus(), decision.replay());
+        long now = System.nanoTime();
+        emitAdmission(result, now);
+        emitCompletions(now);
+        return result;
     }
 
     /** Transiciones locales: sin callbacks ni entrega de eventos bajo el lock. */
@@ -218,6 +241,7 @@ public final class ElevatorWorker implements AutoCloseable {
             if (!served.isEmpty()) { recordService(served, false, now, notifications); }
             return;
         }
+        Direction previousDirection = state.getDirection();
         List<Request> served = state.beginDwell(state.getDirection(), now);
         if (!served.isEmpty()) {
             recordService(served, true, now, notifications);
@@ -229,6 +253,7 @@ public final class ElevatorWorker implements AutoCloseable {
         } else {
             served = state.beginDwell(state.getDirection().opposite(), now);
             if (!served.isEmpty()) {
+                emitDirectionChange(previousDirection, now);
                 recordService(served, true, now, notifications);
                 return;
             }
@@ -238,14 +263,55 @@ public final class ElevatorWorker implements AutoCloseable {
             completedSweep = Optional.empty();
         }
         published.set(state.snapshot(now));
+        emitDirectionChange(previousDirection, now);
+        if (state.getPhase() == ElevatorPhase.MOVING) {
+            emit(ExecutionEvent.Type.DEPARTED, now);
+        }
     }
 
     private void recordService(List<Request> served, boolean openedStop, long now,
             List<Service> notifications) {
         ledger.markServed(served);
         published.set(state.snapshot(now));
+        if (openedStop) { emit(ExecutionEvent.Type.STOP_STARTED, now); }
+        emitCompletions(now);
         notifications.add(new Service(state.getId(), state.getEpoch(), state.getRevision(),
                 state.getCurrentFloor(), state.getDirection(), now, openedStop, served));
+    }
+
+    private void emitAdmission(Result result, long now) {
+        ExecutionEvent.Type type = result.replay() ? ExecutionEvent.Type.COMMAND_REPLAYED
+                : switch (result.outcome()) {
+                    case ACCEPTED -> ExecutionEvent.Type.COMMAND_ACCEPTED;
+                    case DUPLICATE -> ExecutionEvent.Type.COMMAND_DUPLICATE;
+                    case REJECTED -> ExecutionEvent.Type.COMMAND_REJECTED;
+                };
+        eventBatch.add(new ExecutionEvent(++eventSequence, type, state.snapshot(now),
+                Optional.of(result.command()), result.canonicalRequestId(), result.detail()));
+    }
+
+    private void emitCompletions(long now) {
+        for (CommandLedger.Completion completion : ledger.drainCompletions()) {
+            eventBatch.add(new ExecutionEvent(++eventSequence,
+                    ExecutionEvent.Type.COMMAND_COMPLETED, state.snapshot(now),
+                    Optional.of(completion.command()), Optional.of(completion.canonicalRequestId()),
+                    "Solicitud canónica atendida."));
+        }
+    }
+
+    private void emitDirectionChange(Direction previous, long now) {
+        if (previous != state.getDirection()) { emit(ExecutionEvent.Type.DIRECTION_CHANGED, now); }
+    }
+
+    private void emit(ExecutionEvent.Type type, long now) {
+        eventBatch.add(new ExecutionEvent(++eventSequence, type, state.snapshot(now),
+                Optional.empty(), Optional.empty(), ""));
+    }
+
+    /** Sin lock del buzón, callbacks, I/O ni espera de consumidores. */
+    private void flushEvents() {
+        for (ExecutionEvent event : eventBatch) { events.add(event); }
+        eventBatch.clear();
     }
 
     private static long timeoutNanos(Duration timeout) {
