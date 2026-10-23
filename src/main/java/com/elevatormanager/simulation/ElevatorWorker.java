@@ -21,8 +21,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T24: movimiento y parada temporizados; servicio compatible por piso/sentido.
- * La selección definitiva del recorrido se incorpora en T25.
+ * T25: barridos por sentido, con frontera comprometida y servicio en ruta.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -48,6 +47,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
+    private Optional<Direction> completedSweep = Optional.empty();
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
         state = new ElevatorState(id, config, epoch);
@@ -142,6 +142,9 @@ public final class ElevatorWorker implements AutoCloseable {
                     long now = System.nanoTime();
                     if (state.getPhase() == ElevatorPhase.MOVING
                             && state.completeLegIfDue(now)) {
+                        if (state.getCommittedFloor().isEmpty()) {
+                            completedSweep = Optional.of(state.getDirection());
+                        }
                         published.set(state.snapshot(now));
                         continueWork(now, notifications);
                     } else if (state.getPhase() == ElevatorPhase.DWELLING
@@ -230,6 +233,7 @@ public final class ElevatorWorker implements AutoCloseable {
             return;
         }
         if (state.getCommittedFloor().isPresent()) {
+            completedSweep = Optional.empty();
             state.beginNextLeg(now);
         } else {
             served = state.beginDwell(state.getDirection().opposite(), now);
@@ -237,12 +241,10 @@ public final class ElevatorWorker implements AutoCloseable {
                 recordService(served, true, now, notifications);
                 return;
             }
-            // Continuidad provisional: internas y luego externas, en orden local.
-            // T25 sustituirá esta selección por la agenda ordenada por sentido.
-            Request next = !state.getCabinRequests().isEmpty()
-                    ? state.getCabinRequests().get(0)
-                    : state.getHallRequests().isEmpty() ? null : state.getHallRequests().get(0);
-            if (next != null) { state.beginJourney(next.getFloor(), now); }
+            var target = DirectionalAgenda.selectTarget(state.getCurrentFloor(),
+                    state.getPendingRequestsInAdmissionOrder(), completedSweep);
+            if (target.isPresent()) { state.beginJourney(target.getAsInt(), now); }
+            completedSweep = Optional.empty();
         }
         published.set(state.snapshot(now));
     }

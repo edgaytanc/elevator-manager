@@ -30,6 +30,7 @@ public final class ElevatorState {
     private long dwellStartedNanos;
     private final Map<UUID, CabinRequest> cabinRequests = new LinkedHashMap<>();
     private final Map<UUID, HallRequest> hallRequests = new LinkedHashMap<>();
+    private final Map<UUID, Request> admissionOrder = new LinkedHashMap<>();
 
     public ElevatorState(int id, SimulationConfig config, long epoch) {
         this.config = Objects.requireNonNull(config, "config");
@@ -65,8 +66,14 @@ public final class ElevatorState {
         }
         if (targetFloor == currentFloor) { return false; }
         long nextRevision = Math.incrementExact(revision);
-        direction = targetFloor > currentFloor ? Direction.UP : Direction.DOWN;
-        committedFloor = targetFloor;
+        Direction travelDirection = targetFloor > currentFloor ? Direction.UP : Direction.DOWN;
+        int frontier = targetFloor;
+        for (CabinRequest request : cabinRequests.values()) {
+            frontier = travelDirection == Direction.UP
+                    ? Math.max(frontier, request.getFloor()) : Math.min(frontier, request.getFloor());
+        }
+        direction = travelDirection;
+        committedFloor = frontier;
         startLeg(nowNanos);
         revision = nextRevision;
         return true;
@@ -180,6 +187,7 @@ public final class ElevatorState {
         for (Request request : served) {
             cabinRequests.remove(request.getId());
             hallRequests.remove(request.getId());
+            admissionOrder.remove(request.getId());
         }
     }
 
@@ -219,6 +227,11 @@ public final class ElevatorState {
     /** Copia de recogidas ya dirigidas a esta cabina por el manejador. */
     public List<HallRequest> getHallRequests() {
         return List.copyOf(hallRequests.values());
+    }
+
+    /** Orden global de admisión local; no es el orden de las paradas del barrido. */
+    public List<Request> getPendingRequestsInAdmissionOrder() {
+        return List.copyOf(admissionOrder.values());
     }
 
     /**
@@ -263,6 +276,17 @@ public final class ElevatorState {
             cabinRequests.put(cabin.getId(), cabin);
         } else {
             hallRequests.put(request.getId(), (HallRequest) request);
+        }
+        admissionOrder.put(request.getId(), request);
+        if (request instanceof CabinRequest
+                && (phase == ElevatorPhase.MOVING || phase == ElevatorPhase.DWELLING
+                || committedFloor != 0)) {
+            int floor = request.getFloor();
+            if (direction == Direction.UP && floor > currentFloor) {
+                committedFloor = Math.max(committedFloor == 0 ? currentFloor : committedFloor, floor);
+            } else if (direction == Direction.DOWN && floor < currentFloor) {
+                committedFloor = Math.min(committedFloor == 0 ? currentFloor : committedFloor, floor);
+            }
         }
         revision = nextRevision;
         return true;
