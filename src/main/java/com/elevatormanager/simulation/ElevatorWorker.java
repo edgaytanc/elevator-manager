@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -21,15 +22,21 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T25: barridos por sentido, con frontera comprometida y servicio en ruta.
+ * T26: admisión concurrente serializada y deduplicación de comandos/solicitudes.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
     public enum Lifecycle { NEW, RUNNING, CLOSING, TERMINATED, FAILED }
-    public enum Outcome { ACCEPTED, REJECTED }
+    public enum Outcome { ACCEPTED, REJECTED, DUPLICATE }
 
     /** Aceptación en agenda, nunca confirmación de llegada o servicio. */
-    public record Result(Command command, Outcome outcome, String detail) { }
+    public record Result(Command command, Outcome outcome, String detail,
+            Optional<UUID> canonicalRequestId, Optional<CommandLedger.RequestStatus> requestStatus,
+            boolean replay) {
+        public Result(Command command, Outcome outcome, String detail) {
+            this(command, outcome, detail, Optional.empty(), Optional.empty(), false);
+        }
+    }
 
     /** Hecho de servicio: apertura de parada o incorporación a una parada abierta. */
     public record Service(int elevatorId, long epoch, long revision, int floor,
@@ -38,6 +45,7 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private final ElevatorState state;
+    private final CommandLedger ledger;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition available = lock.newCondition();
     private final ArrayDeque<Command> inbox = new ArrayDeque<>();
@@ -51,6 +59,7 @@ public final class ElevatorWorker implements AutoCloseable {
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
         state = new ElevatorState(id, config, epoch);
+        ledger = new CommandLedger(state);
         published = new AtomicReference<>(state.snapshot(System.nanoTime()));
         thread = new Thread(this::runLoop, "elevator-worker-" + id);
     }
@@ -190,33 +199,15 @@ public final class ElevatorWorker implements AutoCloseable {
 
     /** Sección local breve: sin I/O, callbacks ni bloqueos de otras cabinas. */
     private Result admit(Command command) {
-        try {
-            if (command.elevatorId() != state.getId()) {
-                throw new IllegalArgumentException("Destinatario distinto de esta cabina.");
-            }
-            if (command instanceof Command.Reset) {
-                throw new IllegalArgumentException("Reset operativo pendiente de fase 6.");
-            }
-            if (command.epoch() != state.getEpoch()) {
-                throw new IllegalArgumentException("Época distinta de la vigente.");
-            }
-            if (!command.validateAgainst(state.getConfig()).isValid()) {
-                throw new IllegalArgumentException("Comando inválido para este edificio.");
-            }
-            boolean added;
-            if (command instanceof Command.Pickup pickup) {
-                added = state.addPendingRequest(pickup.request());
-            } else if (command instanceof Command.Destination destination) {
-                added = state.addPendingRequest(destination.request());
-            } else {
-                throw new IllegalArgumentException("Comando no soportado.");
-            }
-            published.set(state.snapshot(System.nanoTime()));
-            return new Result(command, Outcome.ACCEPTED,
-                    added ? "Incorporado a la agenda." : "Identidad ya pendiente.");
-        } catch (IllegalArgumentException exception) {
-            return new Result(command, Outcome.REJECTED, exception.getMessage());
-        }
+        CommandLedger.Decision decision = ledger.admit(command);
+        published.set(state.snapshot(System.nanoTime()));
+        Outcome outcome = switch (decision.kind()) {
+            case ADDED -> Outcome.ACCEPTED;
+            case DUPLICATE -> Outcome.DUPLICATE;
+            case REJECTED -> Outcome.REJECTED;
+        };
+        return new Result(command, outcome, decision.detail(), decision.canonicalRequestId(),
+                decision.requestStatus(), decision.replay());
     }
 
     /** Transiciones locales: sin callbacks ni entrega de eventos bajo el lock. */
@@ -251,6 +242,7 @@ public final class ElevatorWorker implements AutoCloseable {
 
     private void recordService(List<Request> served, boolean openedStop, long now,
             List<Service> notifications) {
+        ledger.markServed(served);
         published.set(state.snapshot(now));
         notifications.add(new Service(state.getId(), state.getEpoch(), state.getRevision(),
                 state.getCurrentFloor(), state.getDirection(), now, openedStop, served));
