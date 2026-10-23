@@ -1,0 +1,176 @@
+T28_CHECK overlap_ms=360.579
+T28_CHECK Viaje A acumulado observed_ms=360.591 minimum_ms=360
+T28_CHECK Viaje B acumulado observed_ms=360.583 minimum_ms=360
+T28_TRACE scenario=recorridos-simultaneos
+cabin=1 seq=1 t_ms=66.646 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=67.264 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=187.491 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=4 t_ms=187.491 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=1 seq=5 t_ms=307.679 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=6 t_ms=307.679 type=DEPARTED floor=3 next=4 direction=UP phase=MOVING command=-
+cabin=1 seq=7 t_ms=427.855 type=ARRIVED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=8 t_ms=427.855 type=STOP_STARTED floor=4 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=9 t_ms=427.855 type=COMMAND_COMPLETED floor=4 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=10 t_ms=518.030 type=STOP_ENDED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=11 t_ms=546.989 type=WORKER_TERMINATED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=1 t_ms=66.646 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=67.260 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=3 t_ms=187.479 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=4 t_ms=187.479 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=2 seq=5 t_ms=307.648 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=6 t_ms=307.648 type=DEPARTED floor=3 next=4 direction=UP phase=MOVING command=-
+cabin=2 seq=7 t_ms=427.843 type=ARRIVED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=8 t_ms=427.843 type=STOP_STARTED floor=4 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=9 t_ms=427.843 type=COMMAND_COMPLETED floor=4 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=10 t_ms=518.030 type=STOP_ENDED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=11 t_ms=546.998 type=WORKER_TERMINATED floor=4 next=- direction=UP phase=IDLE command=-
+T28_CHECK overlap_ms=300.362
+T28_TRACE scenario=sentidos-opuestos
+cabin=1 seq=1 t_ms=0.936 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=0.962 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=101.144 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=4 t_ms=101.144 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=1 seq=5 t_ms=201.329 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=6 t_ms=201.329 type=DEPARTED floor=3 next=4 direction=UP phase=MOVING command=-
+cabin=1 seq=7 t_ms=301.501 type=ARRIVED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=8 t_ms=301.501 type=STOP_STARTED floor=4 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=9 t_ms=301.501 type=COMMAND_COMPLETED floor=4 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=10 t_ms=351.685 type=STOP_ENDED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=11 t_ms=353.087 type=COMMAND_ACCEPTED floor=4 next=- direction=UP phase=IDLE command=2
+cabin=1 seq=12 t_ms=353.112 type=DIRECTION_CHANGED floor=4 next=3 direction=DOWN phase=MOVING command=-
+cabin=1 seq=13 t_ms=353.112 type=DEPARTED floor=4 next=3 direction=DOWN phase=MOVING command=-
+cabin=1 seq=14 t_ms=453.330 type=ARRIVED floor=3 next=- direction=DOWN phase=IDLE command=-
+cabin=1 seq=15 t_ms=453.330 type=DEPARTED floor=3 next=2 direction=DOWN phase=MOVING command=-
+cabin=1 seq=16 t_ms=553.489 type=ARRIVED floor=2 next=- direction=DOWN phase=IDLE command=-
+cabin=1 seq=17 t_ms=553.489 type=DEPARTED floor=2 next=1 direction=DOWN phase=MOVING command=-
+cabin=1 seq=18 t_ms=653.673 type=ARRIVED floor=1 next=- direction=DOWN phase=IDLE command=-
+cabin=1 seq=19 t_ms=653.673 type=STOP_STARTED floor=1 next=- direction=DOWN phase=DWELLING command=-
+cabin=1 seq=20 t_ms=653.673 type=COMMAND_COMPLETED floor=1 next=- direction=DOWN phase=DWELLING command=2
+cabin=1 seq=21 t_ms=703.853 type=STOP_ENDED floor=1 next=- direction=DOWN phase=IDLE command=-
+cabin=1 seq=22 t_ms=705.961 type=WORKER_TERMINATED floor=1 next=- direction=DOWN phase=IDLE command=-
+cabin=2 seq=1 t_ms=353.249 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=353.311 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=3 t_ms=453.433 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=4 t_ms=453.433 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=2 seq=5 t_ms=553.558 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=6 t_ms=553.558 type=DEPARTED floor=3 next=4 direction=UP phase=MOVING command=-
+cabin=2 seq=7 t_ms=653.698 type=ARRIVED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=8 t_ms=653.698 type=STOP_STARTED floor=4 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=9 t_ms=653.698 type=COMMAND_COMPLETED floor=4 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=10 t_ms=703.821 type=STOP_ENDED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=11 t_ms=705.970 type=WORKER_TERMINATED floor=4 next=- direction=UP phase=IDLE command=-
+T28_TRACE scenario=movimiento-durante-parada-ajena
+cabin=1 seq=1 t_ms=0.967 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=1.002 type=STOP_STARTED floor=1 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=3 t_ms=1.002 type=COMMAND_COMPLETED floor=1 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=4 t_ms=1001.211 type=STOP_ENDED floor=1 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=5 t_ms=1001.697 type=WORKER_TERMINATED floor=1 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=1 t_ms=1.839 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=1.857 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=3 t_ms=82.062 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=4 t_ms=82.062 type=STOP_STARTED floor=2 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=5 t_ms=82.062 type=COMMAND_COMPLETED floor=2 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=6 t_ms=1001.848 type=WORKER_TERMINATED floor=2 next=- direction=UP phase=DWELLING command=-
+T28_CHECK overlap_ms=180.226
+T28_TRACE scenario=viaje-corto-durante-viaje-largo
+cabin=1 seq=1 t_ms=1.227 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=1.249 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=181.457 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=4 t_ms=181.457 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=1 seq=5 t_ms=361.640 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=6 t_ms=361.640 type=DEPARTED floor=3 next=4 direction=UP phase=MOVING command=-
+cabin=1 seq=7 t_ms=541.798 type=ARRIVED floor=4 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=8 t_ms=541.798 type=DEPARTED floor=4 next=5 direction=UP phase=MOVING command=-
+cabin=1 seq=9 t_ms=722.047 type=ARRIVED floor=5 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=10 t_ms=722.047 type=STOP_STARTED floor=5 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=11 t_ms=722.047 type=COMMAND_COMPLETED floor=5 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=12 t_ms=725.452 type=WORKER_TERMINATED floor=5 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=1 t_ms=1.220 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=1.245 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=3 t_ms=181.476 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=4 t_ms=181.476 type=STOP_STARTED floor=2 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=5 t_ms=181.476 type=COMMAND_COMPLETED floor=2 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=6 t_ms=241.694 type=STOP_ENDED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=7 t_ms=725.429 type=WORKER_TERMINATED floor=2 next=- direction=UP phase=IDLE command=-
+T28_CHECK Parada antes de continuar observed_ms=160.196 minimum_ms=160
+T28_CHECK Movimiento más parada intermedia observed_ms=520.541 minimum_ms=520
+T28_TRACE scenario=parada-intermedia-y-tiempo-acumulado
+cabin=1 seq=1 t_ms=1.045 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=1.064 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=2.057 type=COMMAND_ACCEPTED floor=1 next=2 direction=UP phase=MOVING command=2
+cabin=1 seq=4 t_ms=181.237 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=5 t_ms=181.237 type=STOP_STARTED floor=2 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=6 t_ms=181.237 type=COMMAND_COMPLETED floor=2 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=7 t_ms=341.433 type=STOP_ENDED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=8 t_ms=341.433 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=1 seq=9 t_ms=521.605 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=10 t_ms=521.605 type=STOP_STARTED floor=3 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=11 t_ms=521.605 type=COMMAND_COMPLETED floor=3 next=- direction=UP phase=DWELLING command=2
+cabin=1 seq=12 t_ms=523.681 type=WORKER_TERMINATED floor=3 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=1 t_ms=523.699 type=WORKER_TERMINATED floor=1 next=- direction=UP phase=IDLE command=-
+T28_TRACE scenario=despertares-del-buzon
+cabin=1 seq=1 t_ms=0.826 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=0.847 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=2.828 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=4 t_ms=2.994 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=5 t_ms=3.243 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=6 t_ms=3.367 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=7 t_ms=3.498 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=8 t_ms=3.616 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=9 t_ms=3.728 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=10 t_ms=3.817 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=11 t_ms=3.901 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=12 t_ms=4.057 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=13 t_ms=4.202 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=14 t_ms=4.332 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=15 t_ms=4.441 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=16 t_ms=4.555 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=17 t_ms=4.651 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=18 t_ms=4.734 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=19 t_ms=4.840 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=20 t_ms=4.928 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=21 t_ms=5.028 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=22 t_ms=5.108 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=23 t_ms=5.189 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=24 t_ms=5.279 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=25 t_ms=5.359 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=26 t_ms=5.447 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=27 t_ms=5.548 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=28 t_ms=5.628 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=29 t_ms=5.716 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=30 t_ms=5.798 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=31 t_ms=5.887 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=32 t_ms=6.121 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=33 t_ms=6.242 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=34 t_ms=6.325 type=COMMAND_REPLAYED floor=1 next=2 direction=UP phase=MOVING command=1
+cabin=1 seq=35 t_ms=401.018 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=36 t_ms=401.018 type=STOP_STARTED floor=2 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=37 t_ms=401.018 type=COMMAND_COMPLETED floor=2 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=38 t_ms=401.901 type=WORKER_TERMINATED floor=2 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=1 t_ms=401.975 type=WORKER_TERMINATED floor=1 next=- direction=UP phase=IDLE command=-
+T28_TRACE scenario=cierre-local-independiente
+cabin=1 seq=1 t_ms=0.691 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=0.703 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=1 seq=3 t_ms=1.498 type=WORKER_TERMINATED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=1 t_ms=2.167 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=2.223 type=DEPARTED floor=1 next=2 direction=UP phase=MOVING command=-
+cabin=2 seq=3 t_ms=182.508 type=ARRIVED floor=2 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=4 t_ms=182.508 type=DEPARTED floor=2 next=3 direction=UP phase=MOVING command=-
+cabin=2 seq=5 t_ms=362.724 type=ARRIVED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=6 t_ms=362.724 type=STOP_STARTED floor=3 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=7 t_ms=362.724 type=COMMAND_COMPLETED floor=3 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=8 t_ms=422.897 type=STOP_ENDED floor=3 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=9 t_ms=425.529 type=WORKER_TERMINATED floor=3 next=- direction=UP phase=IDLE command=-
+T28_CHECK overlap_ms=250.169
+T28_TRACE scenario=edificio-de-un-piso
+cabin=1 seq=1 t_ms=1.200 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=1 seq=2 t_ms=1.215 type=STOP_STARTED floor=1 next=- direction=UP phase=DWELLING command=-
+cabin=1 seq=3 t_ms=1.215 type=COMMAND_COMPLETED floor=1 next=- direction=UP phase=DWELLING command=1
+cabin=1 seq=4 t_ms=251.384 type=STOP_ENDED floor=1 next=- direction=UP phase=IDLE command=-
+cabin=1 seq=5 t_ms=252.683 type=WORKER_TERMINATED floor=1 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=1 t_ms=1.200 type=COMMAND_ACCEPTED floor=1 next=- direction=UP phase=IDLE command=1
+cabin=2 seq=2 t_ms=1.215 type=STOP_STARTED floor=1 next=- direction=UP phase=DWELLING command=-
+cabin=2 seq=3 t_ms=1.215 type=COMMAND_COMPLETED floor=1 next=- direction=UP phase=DWELLING command=1
+cabin=2 seq=4 t_ms=251.384 type=STOP_ENDED floor=1 next=- direction=UP phase=IDLE command=-
+cabin=2 seq=5 t_ms=252.702 type=WORKER_TERMINATED floor=1 next=- direction=UP phase=IDLE command=-
+T28: 8 escenarios satisfactorios.

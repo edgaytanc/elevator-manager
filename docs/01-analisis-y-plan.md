@@ -226,7 +226,7 @@ elevator-manager/
 - [x] **T25 — Implementar agenda ordenada por sentido.** Etiqueta: BASE. Incorporar destinos y llamadas intermedias compatibles manteniendo el compromiso de recorrido. **Aceptación:** una solicitud detrás de la cabina no fuerza una inversión inmediata; una parada intermedia compatible sí se atiende.
 - [x] **T26 — Implementar inserción concurrente y deduplicación.** Etiqueta: BASE. Recibir comandos durante movimiento/parada y distinguir trabajo pendiente del ya atendido. **Aceptación:** no se pierden destinos ni ocurren errores de modificación concurrente; puede solicitarse otra vez un piso ya atendido.
 - [x] **T27 — Incorporar eventos de ejecución.** Etiqueta: BASE. Emitir salida, llegada, parada, cambio de dirección, aceptación y finalización de comandos. **Aceptación:** cada evento lleva elevador, solicitud cuando corresponda y orden interpretable por cabina.
-- [ ] **T28 — Comprobar paralelismo y tiempos.** Etiqueta: CALIDAD. Ejecutar al menos dos cabinas con recorridos simultáneos y comprobar trazas. **Aceptación:** los recorridos se solapan; los tiempos se verifican con tolerancia, no con igualdad exacta del planificador del sistema operativo.
+- [x] **T28 — Comprobar paralelismo y tiempos.** Etiqueta: CALIDAD. Ejecutar al menos dos cabinas con recorridos simultáneos y comprobar trazas. **Aceptación:** los recorridos se solapan; los tiempos se verifican con tolerancia, no con igualdad exacta del planificador del sistema operativo.
 
 ### Fase 5 — Implementar el Elevator Manager y la asignación
 
