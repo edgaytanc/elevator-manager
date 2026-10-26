@@ -232,7 +232,7 @@ elevator-manager/
 
 **Entrada:** elevadores funcionales. **Salida:** distribución correcta y justificable. **Dependencias:** fase 4. **Prioridad:** P0.
 
-- [ ] **T29 — Implementar el hilo del manejador.** Etiqueta: BASE. Consumir llamadas externas desde su propia cola y procesarlas sin usar el hilo gráfico. **Aceptación:** el manejador tiene ejecución independiente y asigna incluso cuando N = 1.
+- [x] **T29 — Implementar el hilo del manejador.** Etiqueta: BASE. Consumir llamadas externas desde su propia cola y procesarlas sin usar el hilo gráfico. **Aceptación:** el manejador tiene ejecución independiente y asigna incluso cuando N = 1.
 - [ ] **T30 — Implementar estimación de tiempo de recogida.** Etiqueta: BASE. Considerar posición, dirección, tramo restante, paradas y retorno necesario para recoger con el sentido solicitado. **Aceptación:** produce resultados justificables en escenarios pequeños y contempla una cabina cercana pero ocupada.
 - [ ] **T31 — Implementar selección y desempate.** Etiqueta: BASE. Elegir el menor costo estimado, comprobar estado vigente y entregar el comando a la cabina. **Aceptación:** la misma entrada estable produce una decisión determinista y las cabinas no disponibles quedan excluidas.
 - [ ] **T32 — Coordinar pedidos pendientes y confirmaciones.** Etiqueta: BASE. Rastrear recibido, asignado y atendido; controlar duplicados y rechazos sin duplicar responsabilidades. **Aceptación:** ninguna llamada desaparece al asignarse y no se registra como atendida antes de su parada compatible.
