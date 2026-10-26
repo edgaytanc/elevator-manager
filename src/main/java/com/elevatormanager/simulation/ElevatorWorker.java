@@ -22,7 +22,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T27: ejecución serializada con eventos inmutables y ordenados por cabina.
+ * T30: ejecución serializada, eventos y captura atómica de planificación.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -55,7 +55,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private long eventSequence;
     // Solo el actor construye y entrega este lote antes de la siguiente transición.
     private final List<ExecutionEvent> eventBatch = new ArrayList<>();
-    private final AtomicReference<ElevatorSnapshot> published;
+    private final AtomicReference<PlanningSnapshot> published;
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
@@ -64,7 +64,7 @@ public final class ElevatorWorker implements AutoCloseable {
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
         state = new ElevatorState(id, config, epoch);
         ledger = new CommandLedger(state);
-        published = new AtomicReference<>(state.snapshot(System.nanoTime()));
+        published = new AtomicReference<>(capture(System.nanoTime()));
         thread = new Thread(this::runLoop, "elevator-worker-" + id);
     }
 
@@ -101,7 +101,15 @@ public final class ElevatorWorker implements AutoCloseable {
         }
     }
 
-    public ElevatorSnapshot snapshot() { return published.get(); }
+    public ElevatorSnapshot snapshot() { return published.get().elevator(); }
+
+    /** Estado, orden de admisión y barrido capturados juntos por el actor. */
+    public PlanningSnapshot planningSnapshot() { return published.get(); }
+
+    private PlanningSnapshot capture(long now) {
+        return new PlanningSnapshot(state.snapshot(now),
+                state.getPendingRequestsInAdmissionOrder(), completedSweep);
+    }
     public Lifecycle lifecycle() { return lifecycle; }
     public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
     public String threadName() { return thread.getName(); }
@@ -165,12 +173,12 @@ public final class ElevatorWorker implements AutoCloseable {
                         if (state.getCommittedFloor().isEmpty()) {
                             completedSweep = Optional.of(state.getDirection());
                         }
-                        published.set(state.snapshot(now));
+                        published.set(capture(now));
                         emit(ExecutionEvent.Type.ARRIVED, now);
                         continueWork(now, notifications);
                     } else if (state.getPhase() == ElevatorPhase.DWELLING
                             && state.completeDwellIfDue(now)) {
-                        published.set(state.snapshot(now));
+                        published.set(capture(now));
                         emit(ExecutionEvent.Type.STOP_ENDED, now);
                         continueWork(now, notifications);
                     } else if (!inbox.isEmpty()) {
@@ -219,7 +227,7 @@ public final class ElevatorWorker implements AutoCloseable {
     /** Sección local breve: sin I/O, callbacks ni bloqueos de otras cabinas. */
     private Result admit(Command command) {
         CommandLedger.Decision decision = ledger.admit(command);
-        published.set(state.snapshot(System.nanoTime()));
+        published.set(capture(System.nanoTime()));
         Outcome outcome = switch (decision.kind()) {
             case ADDED -> Outcome.ACCEPTED;
             case DUPLICATE -> Outcome.DUPLICATE;
@@ -262,7 +270,7 @@ public final class ElevatorWorker implements AutoCloseable {
             if (target.isPresent()) { state.beginJourney(target.getAsInt(), now); }
             completedSweep = Optional.empty();
         }
-        published.set(state.snapshot(now));
+        published.set(capture(now));
         emitDirectionChange(previousDirection, now);
         if (state.getPhase() == ElevatorPhase.MOVING) {
             emit(ExecutionEvent.Type.DEPARTED, now);
@@ -272,7 +280,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private void recordService(List<Request> served, boolean openedStop, long now,
             List<Service> notifications) {
         ledger.markServed(served);
-        published.set(state.snapshot(now));
+        published.set(capture(now));
         if (openedStop) { emit(ExecutionEvent.Type.STOP_STARTED, now); }
         emitCompletions(now);
         notifications.add(new Service(state.getId(), state.getEpoch(), state.getRevision(),
