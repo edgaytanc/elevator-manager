@@ -1,7 +1,5 @@
 package com.elevatormanager.dispatch;
 
-import com.elevatormanager.model.ElevatorPhase;
-import com.elevatormanager.model.ElevatorSnapshot;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
@@ -21,8 +19,8 @@ import java.util.function.LongSupplier;
 import javax.swing.SwingUtilities;
 
 /**
- * T29: actor de llamadas externas. Solo este hilo decide y envía Pickup.
- * El reparto circular es provisional hasta T30/T31; no estima costos.
+ * T31: actor de llamadas externas; selecciona por ETA y desempata por ID.
+ * Revalida capturas y condiciona el envío al estado publicado de la cabina.
  * No consume resultados, servicios ni eventos de las cabinas (T32).
  */
 public final class ManagerWorker implements AutoCloseable {
@@ -44,7 +42,8 @@ public final class ManagerWorker implements AutoCloseable {
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
-    private int nextIndex;
+    private static final int MAX_SELECTION_ATTEMPTS = 3;
+    private final ElevatorSelector selector = new ElevatorSelector();
 
     /**
      * Cabinas prestadas: este actor no las arranca ni las cierra.
@@ -183,30 +182,53 @@ public final class ManagerWorker implements AutoCloseable {
         if (!validation.isValid()) {
             return result(request, Outcome.REJECTED, Optional.empty(), validation.errors().toString());
         }
-        for (int offset = 0; offset < elevators.size(); offset++) {
-            int index = (int) (((long) nextIndex + offset) % elevators.size());
-            var elevator = elevators.get(index);
-            var snapshot = elevator.snapshot();
-            if (elevator.lifecycle() != ElevatorWorker.Lifecycle.RUNNING
-                    || !isAvailable(snapshot)) { continue; }
-            long id = commandIds.getAsLong();
-            if (id < 1) { throw new IllegalStateException("Generador de comandos agotado o inválido."); }
-            var command = new Command.Pickup(id, snapshot.id(), request);
-            if (elevator.submit(command)) {
-                nextIndex = (index + 1) % elevators.size();
-                return result(request, Outcome.DISPATCHED, Optional.of(command),
-                        "Enviado al buzón; admisión y servicio se confirman por separado.");
+        var initial = captureCandidates();
+        if (selector.rank(config, request, initial, System.nanoTime()).choices().isEmpty()) {
+            return result(request, Outcome.REJECTED, Optional.empty(),
+                    "No hay cabinas disponibles o estimables; conservar la solicitud para reintentar.");
+        }
+        long commandId = commandIds.getAsLong();
+        if (commandId < 1) {
+            throw new IllegalStateException("Generador de comandos agotado o inválido.");
+        }
+        // El generador ya terminó: todos los costos siguientes usan un instante nuevo.
+        for (int attempt = 0; attempt < MAX_SELECTION_ATTEMPTS; attempt++) {
+            var candidates = captureCandidates();
+            var ranking = selector.rank(config, request, candidates, System.nanoTime());
+            if (ranking.choices().isEmpty()) {
+                return result(request, Outcome.REJECTED, Optional.empty(),
+                        "No hay cabinas disponibles o estimables; conservar la solicitud para reintentar.");
             }
+            var selected = ranking.choices().get(0);
+            // Revalidar TODAS: también puede mejorar una cabina antes descartada.
+            if (!areCurrent(candidates)) { continue; }
+            var elevator = elevators.get(selected.elevatorId() - 1);
+            var command = new Command.Pickup(commandId, selected.elevatorId(), request);
+            var submitted = elevator.submitIfCurrent(command, selected.candidate().planning());
+            if (submitted == ElevatorWorker.Submission.ENQUEUED) {
+                return result(request, Outcome.DISPATCHED, Optional.of(command),
+                        "Enviado por menor ETA=" + selected.estimate().pickupNanos().orElseThrow()
+                        + " ns; desempate por ID ascendente. Admisión y servicio pendientes de confirmación.");
+            }
+            // No se envió: volver a estimar todas las opciones, no usar un ranking viejo.
         }
         return result(request, Outcome.REJECTED, Optional.empty(),
-                "No hay cabinas disponibles; el llamador conserva la solicitud para reintentar.");
+                "Estado cambiante: se agotaron tres intentos sin encolar. Conservar la solicitud para reintentar.");
     }
 
-    private boolean isAvailable(ElevatorSnapshot snapshot) {
-        return snapshot.epoch() == epoch && snapshot.mode() == ElevatorSnapshot.Mode.NORMAL
-                && (snapshot.phase() == ElevatorPhase.IDLE
-                || snapshot.phase() == ElevatorPhase.MOVING
-                || snapshot.phase() == ElevatorPhase.DWELLING);
+    private List<ElevatorSelector.Candidate> captureCandidates() {
+        return elevators.stream().map(e -> new ElevatorSelector.Candidate(
+                e.planningSnapshot(), e.lifecycle())).toList();
+    }
+
+    private boolean areCurrent(List<ElevatorSelector.Candidate> candidates) {
+        for (int i = 0; i < elevators.size(); i++) {
+            var elevator = elevators.get(i);
+            var candidate = candidates.get(i);
+            if (elevator.lifecycle() != candidate.lifecycle()
+                    || elevator.planningSnapshot() != candidate.planning()) { return false; }
+        }
+        return true;
     }
 
     private Result result(HallRequest request, Outcome outcome,

@@ -22,7 +22,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T30: ejecución serializada, eventos y captura atómica de planificación.
+ * T31: ejecución serializada y envío condicionado a una captura vigente.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -99,6 +99,25 @@ public final class ElevatorWorker implements AutoCloseable {
         } finally {
             lock.unlock();
         }
+    }
+
+    public enum Submission { ENQUEUED, STALE, UNAVAILABLE }
+
+    /**
+     * Compara y encola bajo el lock local. STALE/UNAVAILABLE no encolan nada.
+     * No reserva el estado ni confirma admisión; el buzón previo puede contener trabajo.
+     */
+    public Submission submitIfCurrent(Command command, PlanningSnapshot expected) {
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(expected, "expected");
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) { return Submission.UNAVAILABLE; }
+            if (published.get() != expected) { return Submission.STALE; }
+            inbox.addLast(command);
+            available.signal();
+            return Submission.ENQUEUED;
+        } finally { lock.unlock(); }
     }
 
     public ElevatorSnapshot snapshot() { return published.get().elevator(); }

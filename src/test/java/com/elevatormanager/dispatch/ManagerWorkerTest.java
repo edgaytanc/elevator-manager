@@ -6,8 +6,8 @@ class ManagerWorkerTest {
     @Test void singleCabinDispatchesAndServes() throws Exception {
         ManagerWorkerScenarios.singleCabinDispatchesAndServes();
     }
-    @Test void circularDispatchSupportsN() throws Exception {
-        ManagerWorkerScenarios.circularDispatchSupportsN();
+    @Test void dispatchSupportsNWithCostSelection() throws Exception {
+        ManagerWorkerScenarios.dispatchSupportsNWithCostSelection();
     }
     @Test void lifecycleIsOneShot() throws Exception {
         ManagerWorkerScenarios.lifecycleIsOneShot();

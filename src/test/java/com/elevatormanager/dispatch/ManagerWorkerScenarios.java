@@ -53,13 +53,13 @@ public final class ManagerWorkerScenarios {
         }
     }
 
-    public static void circularDispatchSupportsN() throws Exception {
+    public static void dispatchSupportsNWithCostSelection() throws Exception {
         try (var rig = new Rig(3)) {
-            for (int i = 0; i < 9; i++) { check(rig.manager.submit(hall(2)), "Encolado."); }
+            for (int i = 0; i < 9; i++) { check(rig.manager.submit(hall(1)), "Encolado."); }
             for (int i = 0; i < 9; i++) {
                 var result = result(rig.manager);
-                check(result.command().orElseThrow().elevatorId() == i % 3 + 1,
-                        "Reparto ordenado por ID, independiente del orden de la lista.");
+                check(result.command().orElseThrow().elevatorId() == 1,
+                        "Empate de ETA cero: ID menor, independiente del orden de la lista.");
             }
         }
     }
@@ -164,12 +164,19 @@ public final class ManagerWorkerScenarios {
             for (var producer : producers) { producer.join(5000); check(!producer.isAlive(), "Productor terminó."); }
             check(error.get() == null, "Sin error de productores: " + error.get());
             var requests = new HashSet<UUID>(); var commands = new HashSet<Long>();
+            int dispatched = 0;
             for (int i = 0; i < 48; i++) {
                 var result = result(rig.manager);
-                check(result.outcome() == ManagerWorker.Outcome.DISPATCHED, "Cada entrada despachada.");
-                check(requests.add(result.request().getId()), "Sin entrada repetida.");
-                check(commands.add(result.command().orElseThrow().commandId()), "Sin ID de comando repetido.");
+                check(requests.add(result.request().getId()), "Sin entrada repetida ni perdida.");
+                if (result.outcome() == ManagerWorker.Outcome.DISPATCHED) {
+                    dispatched++;
+                    check(commands.add(result.command().orElseThrow().commandId()), "Sin ID de comando repetido.");
+                } else {
+                    check(result.outcome() == ManagerWorker.Outcome.REJECTED && result.command().isEmpty(),
+                            "Contención devuelve rechazo explícito sin encolar; no pierde la entrada.");
+                }
             }
+            check(dispatched > 0, "Existe progreso de despacho.");
             check(rig.manager.awaitResult(Duration.ZERO).isEmpty(), "Exactamente 48 resultados.");
         }
     }
@@ -247,7 +254,7 @@ public final class ManagerWorkerScenarios {
     }
 
     public static void main(String[] args) throws Exception {
-        singleCabinDispatchesAndServes(); circularDispatchSupportsN(); lifecycleIsOneShot();
+        singleCabinDispatchesAndServes(); dispatchSupportsNWithCostSelection(); lifecycleIsOneShot();
         validatesOnManagerThread(); noAvailableCabinIsExplicit(); closedCabinIsSkipped();
         edtRemainsFreeDuringDispatch(); concurrentProducersLoseNoRequests();
         closeAccountsForQueuedRequests(); sharedCommandSequenceAvoidsCollisions();
