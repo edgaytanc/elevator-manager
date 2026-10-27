@@ -237,7 +237,7 @@ elevator-manager/
 - [x] **T31 — Implementar selección y desempate.** Etiqueta: BASE. Elegir el menor costo estimado, comprobar estado vigente y entregar el comando a la cabina. **Aceptación:** la misma entrada estable produce una decisión determinista y las cabinas no disponibles quedan excluidas.
 - [x] **T32 — Coordinar pedidos pendientes y confirmaciones.** Etiqueta: BASE. Rastrear recibido, asignado y atendido; controlar duplicados y rechazos sin duplicar responsabilidades. **Aceptación:** ninguna llamada desaparece al asignarse y no se registra como atendida antes de su parada compatible.
 - [x] **T33 — Probar reglas de dirección y recogida en ruta.** Etiqueta: CALIDAD. Cubrir llamada compatible delante, incompatible detrás y sentido contrario en el mismo piso. **Aceptación:** se cumple el recorrido comprometido y se distinguen sentidos al recoger.
-- [ ] **T34 — Evaluar eficiencia y escalabilidad.** Etiqueta: CALIDAD. Ejecutar el mismo conjunto de escenarios con 1, 2 y una N mayor configurable; medir espera y movimientos. **Aceptación:** no hay supuestos de dos cabinas y se documentan las decisiones del algoritmo, sin prometer optimalidad global.
+- [x] **T34 — Evaluar eficiencia y escalabilidad.** Etiqueta: CALIDAD. Ejecutar el mismo conjunto de escenarios con 1, 2 y una N mayor configurable; medir espera y movimientos. **Aceptación:** no hay supuestos de dos cabinas y se documentan las decisiones del algoritmo, sin prometer optimalidad global.
 
 ### Fase 6 — Implementar Start, Stop, Reset y cierre seguro
 
