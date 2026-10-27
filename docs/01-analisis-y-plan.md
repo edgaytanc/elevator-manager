@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** planificación; ninguna tarea de implementación se declara realizada.
+- **Estado:** fases 0–5 y T35 cerradas; T36 implementada y comprobada localmente, pendiente de validación Maven del usuario.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -243,7 +243,7 @@ elevator-manager/
 
 **Entrada:** despacho y movimiento integrados. **Salida:** ciclo de vida consistente. **Dependencias:** fase 5. **Prioridad:** P0.
 
-- [ ] **T35 — Implementar el controlador del ciclo de vida.** Etiqueta: BASE. Centralizar transiciones y validar acciones por estado. **Aceptación:** pulsaciones repetidas de Start no crean trabajadores duplicados ni ejecutan dos veces un comando.
+- [x] **T35 — Implementar el controlador del ciclo de vida.** Etiqueta: BASE. Centralizar transiciones y validar acciones por estado. **Aceptación:** pulsaciones repetidas de Start no crean trabajadores duplicados ni ejecutan dos veces un comando.
 - [ ] **T36 — Implementar Stop y continuación con Start.** Etiqueta: BASE. Detener despacho, coordinar fronteras seguras de movimiento y preservar pendientes. **Aceptación:** STOPPING termina en STOPPED; Start continúa sin perder o volver a atender solicitudes ya completadas.
 - [ ] **T37 — Implementar reset prioritario por cabina.** Etiqueta: BASE. Vaciar agenda y comandos antiguos, resolver posición en tránsito y volver al piso 1 respetando movimiento. **Aceptación:** no se teletransporta ni atiende trabajo cancelado y se restablece dirección arriba.
 - [ ] **T38 — Coordinar reset global e invalidación de mensajes.** Etiqueta: BASE. Vaciar pendientes del manejador y esperar confirmación de todas las cabinas; usar época/generación o mecanismo equivalente. **Aceptación:** ningún mensaje en vuelo de la ejecución anterior reaparece y RESET solo se alcanza al terminar todos los retornos.
@@ -473,4 +473,8 @@ Refinamientos actuales: agregar PAUSING/CLOSING como estados transitorios; Stop 
 
 ## 15. Avance de T35 — Inicio de fase 6
 
-Base recibida: commit `94a81f2`, T34 cerrado y fase 5 completada. Se agrega SimulationController con arranque único, admisión por estado y enrutamiento polimórfico; 14 escenarios locales satisfactorios. Ver [implementación T35](implementacion/T35-controlador-ciclo-de-vida.md) y [validación local](comprobaciones/T35-validacion-local.md). La casilla de T35 se conserva pendiente de validación Maven e incorporación en el equipo de David. T36–T40 permanecen abiertas.
+Base recibida: commit `94a81f2`, T34 cerrado y fase 5 completada. Se agrega SimulationController con arranque único, admisión por estado y enrutamiento polimórfico; 14 escenarios locales satisfactorios. Ver [implementación T35](implementacion/T35-controlador-ciclo-de-vida.md) y [validación local](comprobaciones/T35-validacion-local.md). T35 validada en el equipo de David: 14 pruebas específicas, 276 acumuladas, BUILD SUCCESS y commit `9a5f7f4`, con árbol limpio. T36–T40 permanecen abiertas.
+
+## 16. Avance de T36 — Stop y continuación
+
+Se implementan STOPPING → STOPPED con confirmaciones del manejador y todas las cabinas, y Start desde STOPPED sobre los mismos actores y pendientes. Se conservan recorrido, época, deduplicación y restante de parada. Ver [implementación T36](implementacion/T36-stop-y-continuacion.md), [código completo](implementacion/T36-codigo-completo.md) y [validación local](comprobaciones/T36-validacion-local.md). La casilla de T36 queda pendiente hasta confirmar Maven en el equipo de David. No se cierran T37–T40.

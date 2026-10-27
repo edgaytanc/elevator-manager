@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -23,7 +24,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T32: ejecución serializada, envío condicionado y suscripciones de eventos.
+ * T36: ejecución serializada, detención segura y continuación del mismo actor.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -61,6 +62,10 @@ public final class ElevatorWorker implements AutoCloseable {
     private final Thread thread;
     private volatile Lifecycle lifecycle = Lifecycle.NEW;
     private volatile Throwable failure;
+    private boolean stopRequested;
+    private boolean stopped;
+    private boolean resumeRequested;
+    private CompletableFuture<Void> stopConfirmation;
     private Optional<Direction> completedSweep = Optional.empty();
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
@@ -130,6 +135,34 @@ public final class ElevatorWorker implements AutoCloseable {
         } finally { lock.unlock(); }
     }
 
+    /** Control prioritario; confirma tras llegada segura y publicación de eventos. */
+    public CompletableFuture<Void> requestStop() {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Cabina no disponible."));
+            }
+            if (!stopRequested) {
+                stopRequested = true;
+                stopConfirmation = new CompletableFuture<>();
+            }
+            available.signalAll();
+            return stopConfirmation.copy();
+        } finally { lock.unlock(); }
+    }
+
+    /** Continúa el mismo actor; no crea hilos ni vuelve a admitir comandos previos. */
+    public boolean resume() {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped) { return false; }
+            stopRequested = false;
+            resumeRequested = true;
+            available.signalAll();
+            return true;
+        } finally { lock.unlock(); }
+    }
+
     public ElevatorSnapshot snapshot() { return published.get().elevator(); }
 
     /** Estado, orden de admisión y barrido capturados juntos por el actor. */
@@ -192,12 +225,43 @@ public final class ElevatorWorker implements AutoCloseable {
         try {
             while (true) {
                 Result result = null;
+                CompletableFuture<Void> stoppedAck = null;
                 List<Service> notifications = new ArrayList<>();
                 lock.lockInterruptibly();
                 try {
                     if (lifecycle != Lifecycle.RUNNING) { break; }
                     long now = System.nanoTime();
-                    if (state.getPhase() == ElevatorPhase.MOVING
+                    if (stopRequested) {
+                        // Nunca drenar inbox ni abrir servicio después de solicitar Stop.
+                        if (state.getPhase() == ElevatorPhase.MOVING) {
+                            if (state.completeLegIfDue(now)) {
+                                if (state.getCommittedFloor().isEmpty()) {
+                                    completedSweep = Optional.of(state.getDirection());
+                                }
+                                published.set(capture(now));
+                                emit(ExecutionEvent.Type.ARRIVED, now);
+                            } else {
+                                available.awaitNanos(state.phaseRemainingNanos(now));
+                            }
+                        }
+                        if (state.getPhase() != ElevatorPhase.MOVING) {
+                            if (!stopped) {
+                                state.holdDwellForStop(now);
+                                published.set(capture(now));
+                                stopped = true;
+                                emit(ExecutionEvent.Type.CONTROL_STOPPED, now);
+                            }
+                            if (!stopConfirmation.isDone()) { stoppedAck = stopConfirmation; }
+                            else { available.await(); }
+                        }
+                    } else if (resumeRequested) {
+                        resumeRequested = false;
+                        stopped = false;
+                        state.resumeAfterStop(now);
+                        published.set(capture(now));
+                        emit(ExecutionEvent.Type.CONTROL_RESUMED, now);
+                        continueWork(now, notifications);
+                    } else if (state.getPhase() == ElevatorPhase.MOVING
                             && state.completeLegIfDue(now)) {
                         if (state.getCommittedFloor().isEmpty()) {
                             completedSweep = Optional.of(state.getDirection());
@@ -224,6 +288,7 @@ public final class ElevatorWorker implements AutoCloseable {
                     lock.unlock();
                 }
                 flushEvents();
+                if (stoppedAck != null) { stoppedAck.complete(null); }
                 if (result != null) { results.add(result); }
                 for (Service notification : notifications) { services.add(notification); }
             }
@@ -250,6 +315,9 @@ public final class ElevatorWorker implements AutoCloseable {
             emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
                     : ExecutionEvent.Type.WORKER_FAILED, System.nanoTime());
             flushEvents();
+            if (stopConfirmation != null && !stopConfirmation.isDone()) {
+                stopConfirmation.completeExceptionally(new IllegalStateException("Cabina terminada antes de confirmar Stop.", failure));
+            }
         }
     }
 

@@ -14,6 +14,8 @@ import java.util.UUID;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -22,7 +24,7 @@ import java.util.function.LongSupplier;
 import javax.swing.SwingUtilities;
 
 /**
- * T32: actor de llamadas externas, registro canónico y confirmaciones.
+ * T36: actor de llamadas externas con barrera de despacho y continuación.
  * Consume una suscripción propia; mantiene intactos los canales anteriores.
  */
 public final class ManagerWorker implements AutoCloseable {
@@ -38,6 +40,10 @@ public final class ManagerWorker implements AutoCloseable {
     private final List<ElevatorWorker> elevators;
     private final LongSupplier commandIds;
     private final ReentrantLock lock = new ReentrantLock();
+    private final Condition controlChanged = lock.newCondition();
+    private boolean stopRequested;
+    private boolean stopped;
+    private CompletableFuture<Void> stopConfirmation;
     private final ExecutionEventMailbox mailbox = new ExecutionEventMailbox();
     private final HallRequestLedger ledger;
     private final BlockingQueue<HallCallSnapshot> updates = new LinkedBlockingQueue<>();
@@ -111,6 +117,56 @@ public final class ManagerWorker implements AutoCloseable {
         } finally { lock.unlock(); }
     }
 
+    /** Confirma al salir del despacho en vuelo; conserva inbox, ledger y eventos. */
+    public CompletableFuture<Void> requestStop() {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Manejador no disponible."));
+            }
+            if (!stopRequested) {
+                stopRequested = true;
+                stopConfirmation = new CompletableFuture<>();
+            }
+            mailbox.wake();
+            return stopConfirmation.copy();
+        } finally { lock.unlock(); }
+    }
+
+    public boolean resume() {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped) { return false; }
+            stopRequested = false;
+            stopped = false;
+            controlChanged.signalAll();
+            return true;
+        } finally { lock.unlock(); }
+    }
+
+    /** Sin callbacks ni esperas externas bajo el lock local. */
+    private boolean awaitDispatchPermission() throws InterruptedException {
+        while (true) {
+            CompletableFuture<Void> ack;
+            lock.lockInterruptibly();
+            try {
+                if (lifecycle != Lifecycle.RUNNING) { return false; }
+                if (!stopRequested) { return true; }
+                stopped = true;
+                ack = stopConfirmation;
+            } finally { lock.unlock(); }
+            ack.complete(null);
+            lock.lockInterruptibly();
+            try {
+                // Una continuación seguida inmediatamente de otro Stop es una
+                // barrera nueva, aunque el actor no alcanzara a despachar nada.
+                if (stopRequested && stopConfirmation == ack && lifecycle == Lifecycle.RUNNING) {
+                    controlChanged.await();
+                }
+            } finally { lock.unlock(); }
+        }
+    }
+
     public Lifecycle lifecycle() { return lifecycle; }
     public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
     public String threadName() { return thread.getName(); }
@@ -133,6 +189,7 @@ public final class ManagerWorker implements AutoCloseable {
             if (lifecycle == Lifecycle.NEW) { lifecycle = Lifecycle.TERMINATED; }
             else if (lifecycle == Lifecycle.RUNNING) {
                 lifecycle = Lifecycle.CLOSING;
+                controlChanged.signalAll();
                 mailbox.wake();
             }
         } finally { lock.unlock(); }
@@ -165,6 +222,7 @@ public final class ManagerWorker implements AutoCloseable {
         long lastRetry = System.nanoTime();
         try {
             while (lifecycle == Lifecycle.RUNNING) {
+                if (!awaitDispatchPermission()) { break; }
                 boolean hadEvents = false;
                 for (int i = 0; i < 256; i++) {
                     var event = mailbox.await(Duration.ZERO);
@@ -204,6 +262,13 @@ public final class ManagerWorker implements AutoCloseable {
                     // Una entrada por vuelta: los eventos tienen oportunidad de avanzar.
                     continue;
                 }
+                // Un wake de Stop/cierre pudo consumirse al drenar eventos.
+                // Revalidar antes de volver a dormir evita perder ese control.
+                // Si llega después de esta lectura, su wake permanece en la cola.
+                lock.lockInterruptibly();
+                try {
+                    if (stopRequested || lifecycle != Lifecycle.RUNNING) { continue; }
+                } finally { lock.unlock(); }
                 // Los eventos despiertan por cola; el temporizador solo reintenta recibidas.
                 var event = ledger.pending().isEmpty()
                         ? mailbox.await() : mailbox.await(Duration.ofNanos(RETRY_NANOS));
@@ -228,6 +293,9 @@ public final class ManagerWorker implements AutoCloseable {
                 }
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
             } finally { lock.unlock(); }
+            if (stopConfirmation != null && !stopConfirmation.isDone()) {
+                stopConfirmation.completeExceptionally(new IllegalStateException("Manejador terminado antes de confirmar Stop.", failure));
+            }
         }
     }
 

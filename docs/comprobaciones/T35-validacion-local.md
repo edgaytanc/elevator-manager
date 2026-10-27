@@ -44,3 +44,7 @@ Las duraciones son observaciones de esta ejecución; no son límites de rendimie
 Maven no está instalado aquí. No se ejecutó mvn clean verify ni se afirma haber corrido la suite JUnit acumulada. En el equipo de David se deben ejecutar los comandos de la ficha T35: 14 pruebas específicas y 276 acumuladas esperadas sobre la base de 262 de T34. La ventana sigue siendo la de T11; no se realizó aceptación gráfica manual nueva.
 
 T35 queda implementada y comprobada por escenarios; el cierre formal espera la validación Maven del usuario. No se cierran T36–T40.
+
+## Confirmación posterior en el equipo de David
+
+El 2026-10-27 se verificó la salida adjunta de Maven: SimulationControllerTest, 14 pruebas sin fallos, errores u omisiones; construcción completa, 276 pruebas sin fallos, errores u omisiones y BUILD SUCCESS. Se confirmó el commit `9a5f7f4` y árbol limpio. T35 queda cerrada; la limitación de Maven descrita arriba corresponde a la ejecución local inicial.

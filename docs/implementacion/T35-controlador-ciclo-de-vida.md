@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-27, Guatemala.
 - **Fase:** 6 — Implementar ciclo de vida y reset.
 - **Base:** T34, commit `94a81f2`, recibido en el ZIP del usuario.
-- **Estado:** implementación y escenarios locales satisfactorios; pendiente de Maven e incorporación en el equipo de David.
+- **Estado:** cerrada; Maven validado por David, commit `9a5f7f4` y árbol limpio.
 
 ## 1. Alcance
 
@@ -103,3 +103,7 @@ git status --short
 ```
 
 **Siguiente tarea:** T36 — Implementar Stop y continuación con Start. La fase 6 permanece abierta.
+
+## 8. Cierre confirmado de T35
+
+El 2026-10-27 David aportó la salida Maven: 14 pruebas específicas y 276 acumuladas, todas sin fallos, errores u omisiones; BUILD SUCCESS. Commit `9a5f7f4`; comprobaciones de Git satisfactorias y árbol limpio. Las instrucciones de incorporación y estados pendientes anteriores documentan la entrega original. La evolución Stop/Start se describe en T36.

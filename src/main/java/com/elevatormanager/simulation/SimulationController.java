@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 
-/** T35: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
+/** T36: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
 public final class SimulationController implements AutoCloseable {
     public enum Outcome { APPLIED, UNCHANGED, ENQUEUED, REJECTED }
 
@@ -42,6 +43,7 @@ public final class SimulationController implements AutoCloseable {
             task -> new Thread(task, "simulation-controller"));
     private volatile SimulationState state = SimulationState.RESET;
     private volatile Throwable failure;
+    private CompletableFuture<Result> stopCompletion;
 
     public SimulationController(SimulationConfig config, long epoch) {
         this.config = Objects.requireNonNull(config, "config");
@@ -72,11 +74,25 @@ public final class SimulationController implements AutoCloseable {
 
     public ManagerWorker.Lifecycle managerLifecycle() { return manager.lifecycle(); }
 
-    /** RESET -> RUNNING una sola vez. Start repetido no reenvía trabajo. */
+    /** RESET arranca una vez; STOPPED continúa. Start repetido no reenvía trabajo. */
     public CompletableFuture<Result> start() {
         return schedule(() -> {
             if (state == SimulationState.RUNNING) {
                 return result(Outcome.UNCHANGED, "La sesión ya está en ejecución.");
+            }
+            if (state == SimulationState.STOPPED) {
+                try {
+                    for (var elevator : elevators) {
+                        if (!elevator.resume()) { throw new IllegalStateException("Cabina no reanudable."); }
+                    }
+                    if (!manager.resume()) { throw new IllegalStateException("Manejador no reanudable."); }
+                    state = SimulationState.RUNNING;
+                    return result(Outcome.APPLIED, "Continuación de trabajadores y pendientes existentes.");
+                } catch (RuntimeException | Error exception) {
+                    failure = exception;
+                    beginClose();
+                    throw exception;
+                }
             }
             if (state != SimulationState.RESET) {
                 return result(Outcome.REJECTED, "Start no está permitido en " + state);
@@ -93,6 +109,40 @@ public final class SimulationController implements AutoCloseable {
                 beginClose();
                 throw exception;
             }
+        });
+    }
+
+    /** RUNNING -> STOPPING -> STOPPED; el futuro confirma toda la barrera. */
+    public CompletableFuture<Result> stop() {
+        return scheduleAsync(() -> {
+            if (state == SimulationState.STOPPING) { return stopCompletion; }
+            if (state == SimulationState.RESET || state == SimulationState.STOPPED) {
+                return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "No hay avance que detener."));
+            }
+            if (state != SimulationState.RUNNING) {
+                return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Stop no permitido en " + state));
+            }
+            state = SimulationState.STOPPING;
+            var completion = new CompletableFuture<Result>();
+            stopCompletion = completion;
+            var acknowledgements = new java.util.ArrayList<CompletableFuture<Void>>();
+            acknowledgements.add(manager.requestStop());
+            for (var elevator : elevators) { acknowledgements.add(elevator.requestStop()); }
+            CompletableFuture.allOf(acknowledgements.toArray(CompletableFuture[]::new))
+                    .whenComplete((ignored, error) -> schedule(() -> {
+                        if (state == SimulationState.STOPPING && stopCompletion == completion) {
+                            if (error != null) {
+                                failure = error;
+                                completion.completeExceptionally(error);
+                                beginClose();
+                            } else {
+                                state = SimulationState.STOPPED;
+                                completion.complete(result(Outcome.APPLIED, "Despacho y cabinas detenidos; pendientes conservados."));
+                            }
+                        }
+                        return result(Outcome.UNCHANGED, "Confirmación de control procesada.");
+                    }));
+            return completion;
         });
     }
 
@@ -141,6 +191,9 @@ public final class SimulationController implements AutoCloseable {
 
     private void beginClose() {
         state = SimulationState.CLOSING;
+        if (stopCompletion != null && !stopCompletion.isDone()) {
+            stopCompletion.complete(result(Outcome.REJECTED, "Stop interrumpido por cierre."));
+        }
         manager.close();
         elevators.forEach(ElevatorWorker::close);
         coordinator.shutdown();
@@ -161,11 +214,19 @@ public final class SimulationController implements AutoCloseable {
     }
 
     private CompletableFuture<Result> schedule(Supplier<Result> operation) {
+        return scheduleAsync(() -> CompletableFuture.completedFuture(operation.get()));
+    }
+
+    private CompletableFuture<Result> scheduleAsync(Supplier<CompletionStage<Result>> operation) {
         var future = new CompletableFuture<Result>();
         try {
             coordinator.execute(() -> {
-                try { future.complete(operation.get()); }
-                catch (RuntimeException | Error exception) { future.completeExceptionally(exception); }
+                try {
+                    operation.get().whenComplete((value, error) -> {
+                        if (error == null) { future.complete(value); }
+                        else { future.completeExceptionally(error); }
+                    });
+                } catch (RuntimeException | Error exception) { future.completeExceptionally(exception); }
             });
         } catch (RejectedExecutionException exception) {
             future.complete(result(Outcome.REJECTED, "La sesión se está cerrando o está cerrada."));

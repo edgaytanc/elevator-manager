@@ -28,6 +28,7 @@ public final class ElevatorState {
     private int committedFloor;
     private long legStartedNanos;
     private long dwellStartedNanos;
+    private long heldDwellRemainingNanos;
     private final Map<UUID, CabinRequest> cabinRequests = new LinkedHashMap<>();
     private final Map<UUID, HallRequest> hallRequests = new LinkedHashMap<>();
     private final Map<UUID, Request> admissionOrder = new LinkedHashMap<>();
@@ -112,7 +113,24 @@ public final class ElevatorState {
         return remaining(dwellStartedNanos, config.dwellTimeMillis(), nowNanos);
     }
 
+    /** Stop congela solo una parada abierta; jamás un tramo entre pisos. */
+    public void holdDwellForStop(long nowNanos) {
+        if (phase != ElevatorPhase.DWELLING) { return; }
+        heldDwellRemainingNanos = dwellRemainingNanos(nowNanos);
+        phase = ElevatorPhase.HELD;
+        revision = Math.incrementExact(revision);
+    }
+
+    public void resumeAfterStop(long nowNanos) {
+        if (phase != ElevatorPhase.HELD) { return; }
+        long duration = config.dwellTimeMillis() * 1_000_000L;
+        dwellStartedNanos = nowNanos - (duration - heldDwellRemainingNanos);
+        phase = ElevatorPhase.DWELLING;
+        revision = Math.incrementExact(revision);
+    }
+
     public long phaseRemainingNanos(long nowNanos) {
+        if (phase == ElevatorPhase.HELD) { return heldDwellRemainingNanos; }
         return phase == ElevatorPhase.DWELLING
                 ? dwellRemainingNanos(nowNanos) : movementRemainingNanos(nowNanos);
     }
@@ -209,10 +227,12 @@ public final class ElevatorState {
     public ElevatorSnapshot snapshot(long referenceNanos) {
         return new ElevatorSnapshot(id, config, epoch, revision, currentFloor,
                 nextFloor == 0 ? OptionalInt.empty() : OptionalInt.of(nextFloor), direction, phase,
-                Optional.empty(), Optional.empty(), ElevatorSnapshot.Mode.NORMAL,
+                phase == ElevatorPhase.HELD ? Optional.of(ElevatorPhase.DWELLING) : Optional.empty(),
+                phase == ElevatorPhase.HELD ? Optional.of(ElevatorSnapshot.HoldReason.STOP) : Optional.empty(),
+                ElevatorSnapshot.Mode.NORMAL,
                 switch (phase) {
                     case MOVING -> config.movementTimeMillis() * 1_000_000L;
-                    case DWELLING -> config.dwellTimeMillis() * 1_000_000L;
+                    case DWELLING, HELD -> config.dwellTimeMillis() * 1_000_000L;
                     default -> 0L;
                 },
                 phaseRemainingNanos(referenceNanos), referenceNanos,
