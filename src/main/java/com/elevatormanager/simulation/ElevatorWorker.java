@@ -17,12 +17,13 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T31: ejecución serializada y envío condicionado a una captura vigente.
+ * T32: ejecución serializada, envío condicionado y suscripciones de eventos.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -52,6 +53,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private final BlockingQueue<Result> results = new LinkedBlockingQueue<>();
     private final BlockingQueue<Service> services = new LinkedBlockingQueue<>();
     private final BlockingQueue<ExecutionEvent> events = new LinkedBlockingQueue<>();
+    private final CopyOnWriteArrayList<ExecutionEventMailbox> subscribers = new CopyOnWriteArrayList<>();
     private long eventSequence;
     // Solo el actor construye y entrega este lote antes de la siguiente transición.
     private final List<ExecutionEvent> eventBatch = new ArrayList<>();
@@ -100,6 +102,14 @@ public final class ElevatorWorker implements AutoCloseable {
             lock.unlock();
         }
     }
+
+    /** Suscripción adicional sin callbacks. No reproduce eventos anteriores al registro. */
+    public void subscribeEvents(ExecutionEventMailbox mailbox) {
+        subscribers.addIfAbsent(Objects.requireNonNull(mailbox, "mailbox"));
+    }
+
+    /** Puede quedar un último lote ya capturado por el publicador concurrente. */
+    public void unsubscribeEvents(ExecutionEventMailbox mailbox) { subscribers.remove(mailbox); }
 
     public enum Submission { ENQUEUED, STALE, UNAVAILABLE }
 
@@ -337,7 +347,10 @@ public final class ElevatorWorker implements AutoCloseable {
 
     /** Sin lock del buzón, callbacks, I/O ni espera de consumidores. */
     private void flushEvents() {
-        for (ExecutionEvent event : eventBatch) { events.add(event); }
+        for (ExecutionEvent event : eventBatch) {
+            events.add(event);
+            for (var subscriber : subscribers) { subscriber.publish(event); }
+        }
         eventBatch.clear();
     }
 

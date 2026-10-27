@@ -4,28 +4,30 @@ import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
 import com.elevatormanager.simulation.ElevatorWorker;
+import com.elevatormanager.simulation.ExecutionEventMailbox;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import javax.swing.SwingUtilities;
 
 /**
- * T31: actor de llamadas externas; selecciona por ETA y desempata por ID.
- * Revalida capturas y condiciona el envío al estado publicado de la cabina.
- * No consume resultados, servicios ni eventos de las cabinas (T32).
+ * T32: actor de llamadas externas, registro canónico y confirmaciones.
+ * Consume una suscripción propia; mantiene intactos los canales anteriores.
  */
 public final class ManagerWorker implements AutoCloseable {
     public enum Lifecycle { NEW, RUNNING, CLOSING, TERMINATED, FAILED }
-    public enum Outcome { DISPATCHED, REJECTED, CANCELLED }
+    public enum Outcome { DISPATCHED, PENDING, DUPLICATE, REJECTED, CANCELLED }
 
     /** DISPATCHED confirma envío al buzón, nunca admisión ni servicio. */
     public record Result(HallRequest request, Outcome outcome,
@@ -36,7 +38,12 @@ public final class ManagerWorker implements AutoCloseable {
     private final List<ElevatorWorker> elevators;
     private final LongSupplier commandIds;
     private final ReentrantLock lock = new ReentrantLock();
-    private final Condition available = lock.newCondition();
+    private final ExecutionEventMailbox mailbox = new ExecutionEventMailbox();
+    private final HallRequestLedger ledger;
+    private final BlockingQueue<HallCallSnapshot> updates = new LinkedBlockingQueue<>();
+    private final AtomicReference<Map<UUID, HallCallSnapshot>> published = new AtomicReference<>(Map.of());
+    private static final long RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
+    private int retryCursor;
     private final ArrayDeque<HallRequest> inbox = new ArrayDeque<>();
     private final BlockingQueue<Result> results = new LinkedBlockingQueue<>();
     private final Thread thread;
@@ -56,6 +63,7 @@ public final class ManagerWorker implements AutoCloseable {
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
+        ledger = new HallRequestLedger(config, epoch);
         this.commandIds = Objects.requireNonNull(commandIds, "commandIds");
         this.elevators = List.copyOf(elevators).stream()
                 .sorted(Comparator.comparingInt(e -> e.snapshot().id())).toList();
@@ -77,8 +85,12 @@ public final class ManagerWorker implements AutoCloseable {
         try {
             if (lifecycle != Lifecycle.NEW) { return false; }
             lifecycle = Lifecycle.RUNNING;
-            try { thread.start(); }
+            try {
+                for (var elevator : elevators) { elevator.subscribeEvents(mailbox); }
+                thread.start();
+            }
             catch (RuntimeException | Error exception) {
+                for (var elevator : elevators) { elevator.unsubscribeEvents(mailbox); }
                 failure = exception;
                 lifecycle = Lifecycle.FAILED;
                 throw exception;
@@ -94,7 +106,7 @@ public final class ManagerWorker implements AutoCloseable {
         try {
             if (lifecycle != Lifecycle.RUNNING) { return false; }
             inbox.addLast(request);
-            available.signal();
+            mailbox.wake();
             return true;
         } finally { lock.unlock(); }
     }
@@ -121,7 +133,7 @@ public final class ManagerWorker implements AutoCloseable {
             if (lifecycle == Lifecycle.NEW) { lifecycle = Lifecycle.TERMINATED; }
             else if (lifecycle == Lifecycle.RUNNING) {
                 lifecycle = Lifecycle.CLOSING;
-                available.signalAll();
+                mailbox.wake();
             }
         } finally { lock.unlock(); }
     }
@@ -137,41 +149,107 @@ public final class ManagerWorker implements AutoCloseable {
         return !thread.isAlive();
     }
 
+    /** Historial global inmutable; también conserva identidades alias y atendidas. */
+    public Map<UUID, HallCallSnapshot> calls() { return published.get(); }
+    public Optional<HallCallSnapshot> call(UUID id) { return Optional.ofNullable(published.get().get(id)); }
+
+    /** Canal de cambios, independiente del resultado único de cada submit. */
+    public Optional<HallCallSnapshot> awaitUpdate(Duration timeout) throws InterruptedException {
+        long nanos = timeoutNanos(timeout);
+        rejectBlockingOnEdt(nanos);
+        return Optional.ofNullable(updates.poll(nanos, TimeUnit.NANOSECONDS));
+    }
+
     private void runLoop() {
         HallRequest inFlight = null;
+        long lastRetry = System.nanoTime();
         try {
-            while (true) {
+            while (lifecycle == Lifecycle.RUNNING) {
+                boolean hadEvents = false;
+                for (int i = 0; i < 256; i++) {
+                    var event = mailbox.await(Duration.ZERO);
+                    if (event.isEmpty()) { break; }
+                    ledger.onEvent(event.orElseThrow()); publish(); hadEvents = true;
+                }
+                long now = System.nanoTime();
+                if (hadEvents || now - lastRetry >= RETRY_NANOS) {
+                    var pending = ledger.pending();
+                    int count = Math.min(16, pending.size());
+                    for (int i = 0; i < count && lifecycle == Lifecycle.RUNNING; i++) {
+                        var request = pending.get((int) (((long) retryCursor + i) % pending.size()));
+                        dispatch(request); publish();
+                    }
+                    if (!pending.isEmpty()) { retryCursor = (retryCursor + count) % pending.size(); }
+                    lastRetry = System.nanoTime();
+                }
                 lock.lockInterruptibly();
                 try {
-                    while (lifecycle == Lifecycle.RUNNING && inbox.isEmpty()) {
-                        available.await();
-                    }
                     if (lifecycle != Lifecycle.RUNNING) { break; }
-                    inFlight = inbox.removeFirst();
+                    inFlight = inbox.pollFirst();
                 } finally { lock.unlock(); }
-                // Nunca conservar el lock propio al invocar a otra cabina.
-                results.add(dispatch(inFlight));
-                inFlight = null;
+                if (inFlight != null) {
+                    var admission = ledger.receive(inFlight);
+                    publish();
+                    Result result;
+                    if (admission.kind() == HallRequestLedger.AdmissionKind.REJECTED) {
+                        result = result(inFlight, Outcome.REJECTED, Optional.empty(), admission.detail());
+                    } else if (admission.kind() == HallRequestLedger.AdmissionKind.DUPLICATE) {
+                        var known = ledger.get(inFlight.getId()).orElseThrow();
+                        result = result(inFlight, Outcome.DUPLICATE, known.command(),
+                                admission.detail() + " Canónica=" + known.canonicalRequestId());
+                    } else {
+                        result = dispatch(inFlight);
+                    }
+                    publish(); results.add(result); inFlight = null;
+                    // Una entrada por vuelta: los eventos tienen oportunidad de avanzar.
+                    continue;
+                }
+                // Los eventos despiertan por cola; el temporizador solo reintenta recibidas.
+                var event = ledger.pending().isEmpty()
+                        ? mailbox.await() : mailbox.await(Duration.ofNanos(RETRY_NANOS));
+                if (event.isPresent()) { ledger.onEvent(event.orElseThrow()); publish(); }
             }
         } catch (InterruptedException exception) {
-            failure = exception;
-            Thread.currentThread().interrupt();
+            failure = exception; Thread.currentThread().interrupt();
         } catch (RuntimeException | Error exception) {
             failure = exception;
         } finally {
+            for (var elevator : elevators) { elevator.unsubscribeEvents(mailbox); }
             if (inFlight != null) {
                 results.add(result(inFlight, Outcome.CANCELLED, Optional.empty(),
-                        "Fallo durante el despacho; comprobar el historial de la cabina."));
+                        "Fallo durante el procesamiento; revisar el historial publicado."));
             }
+            ledger.close(); publish();
             lock.lock();
             try {
                 while (!inbox.isEmpty()) {
                     results.add(result(inbox.removeFirst(), Outcome.CANCELLED, Optional.empty(),
-                            "Manejador cerrado antes del despacho."));
+                            "Manejador cerrado antes de procesar la entrada."));
                 }
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
             } finally { lock.unlock(); }
         }
+    }
+
+    private void publish() {
+        var next = ledger.snapshot();
+        var previous = published.getAndSet(next);
+        for (var entry : next.entrySet()) {
+            if (!entry.getValue().equals(previous.get(entry.getKey()))) { updates.add(entry.getValue()); }
+        }
+    }
+
+    private List<ElevatorSelector.Candidate> eligibleCandidates(HallRequest request,
+            List<ElevatorSelector.Candidate> candidates) {
+        var rejected = ledger.rejectedCabins(request.getId());
+        var awaiting = ledger.awaitingAdmissionCabins();
+        return candidates.stream().filter(c -> !rejected.contains(c.planning().elevator().id())
+                && !awaiting.contains(c.planning().elevator().id())).toList();
+    }
+
+    private Result pending(HallRequest request, String detail) {
+        ledger.pendingReason(request.getId(), detail);
+        return result(request, Outcome.PENDING, Optional.empty(), detail);
     }
 
     private Result dispatch(HallRequest request) {
@@ -183,9 +261,8 @@ public final class ManagerWorker implements AutoCloseable {
             return result(request, Outcome.REJECTED, Optional.empty(), validation.errors().toString());
         }
         var initial = captureCandidates();
-        if (selector.rank(config, request, initial, System.nanoTime()).choices().isEmpty()) {
-            return result(request, Outcome.REJECTED, Optional.empty(),
-                    "No hay cabinas disponibles o estimables; conservar la solicitud para reintentar.");
+        if (selector.rank(config, request, eligibleCandidates(request, initial), System.nanoTime()).choices().isEmpty()) {
+            return pending(request, "Conservada: no hay cabinas disponibles, confirmadas o estimables para despachar.");
         }
         long commandId = commandIds.getAsLong();
         if (commandId < 1) {
@@ -194,10 +271,9 @@ public final class ManagerWorker implements AutoCloseable {
         // El generador ya terminó: todos los costos siguientes usan un instante nuevo.
         for (int attempt = 0; attempt < MAX_SELECTION_ATTEMPTS; attempt++) {
             var candidates = captureCandidates();
-            var ranking = selector.rank(config, request, candidates, System.nanoTime());
+            var ranking = selector.rank(config, request, eligibleCandidates(request, candidates), System.nanoTime());
             if (ranking.choices().isEmpty()) {
-                return result(request, Outcome.REJECTED, Optional.empty(),
-                        "No hay cabinas disponibles o estimables; conservar la solicitud para reintentar.");
+                return pending(request, "Conservada: no hay cabinas disponibles, confirmadas o estimables para despachar.");
             }
             var selected = ranking.choices().get(0);
             // Revalidar TODAS: también puede mejorar una cabina antes descartada.
@@ -206,14 +282,14 @@ public final class ManagerWorker implements AutoCloseable {
             var command = new Command.Pickup(commandId, selected.elevatorId(), request);
             var submitted = elevator.submitIfCurrent(command, selected.candidate().planning());
             if (submitted == ElevatorWorker.Submission.ENQUEUED) {
+                ledger.dispatched(request.getId(), command);
                 return result(request, Outcome.DISPATCHED, Optional.of(command),
                         "Enviado por menor ETA=" + selected.estimate().pickupNanos().orElseThrow()
                         + " ns; desempate por ID ascendente. Admisión y servicio pendientes de confirmación.");
             }
             // No se envió: volver a estimar todas las opciones, no usar un ranking viejo.
         }
-        return result(request, Outcome.REJECTED, Optional.empty(),
-                "Estado cambiante: se agotaron tres intentos sin encolar. Conservar la solicitud para reintentar.");
+        return pending(request, "Conservada: tres intentos sin encolar por cambios de estado; se reintentará.");
     }
 
     private List<ElevatorSelector.Candidate> captureCandidates() {

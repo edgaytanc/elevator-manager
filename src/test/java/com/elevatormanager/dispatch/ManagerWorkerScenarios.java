@@ -58,8 +58,13 @@ public final class ManagerWorkerScenarios {
             for (int i = 0; i < 9; i++) { check(rig.manager.submit(hall(1)), "Encolado."); }
             for (int i = 0; i < 9; i++) {
                 var result = result(rig.manager);
-                check(result.command().orElseThrow().elevatorId() == 1,
-                        "Empate de ETA cero: ID menor, independiente del orden de la lista.");
+                check(result.outcome() == ManagerWorker.Outcome.DISPATCHED
+                        || result.outcome() == ManagerWorker.Outcome.DUPLICATE
+                        || result.outcome() == ManagerWorker.Outcome.PENDING, "Entrada registrada o despachada.");
+                if (result.command().isPresent()) {
+                    check(result.command().orElseThrow().elevatorId() == 1, "Empate por ID o alias de esa asignación.");
+                }
+                check(rig.manager.call(result.request().getId()).isPresent(), "Identidad retenida en seguimiento.");
             }
         }
     }
@@ -100,8 +105,8 @@ public final class ManagerWorkerScenarios {
             rig.elevators.get(0).close();
             check(rig.elevators.get(0).awaitTermination(LIMIT), "Cabina terminada.");
             rig.manager.submit(hall(2));
-            check(result(rig.manager).outcome() == ManagerWorker.Outcome.REJECTED,
-                    "Sin cabinas se devuelve rechazo recuperable por el llamador.");
+            check(result(rig.manager).outcome() == ManagerWorker.Outcome.PENDING,
+                    "Sin cabinas se conserva la llamada pendiente para reintentar.");
             check(rig.ids.get() == 0, "No genera un comando sin destinatario.");
         }
     }
@@ -135,6 +140,7 @@ public final class ManagerWorkerScenarios {
                             manager.awaitResult(Duration.ZERO);
                             expect(IllegalStateException.class, () -> manager.awaitResult(LIMIT));
                             expect(IllegalStateException.class, () -> manager.awaitTermination(LIMIT));
+                            expect(IllegalStateException.class, () -> manager.awaitUpdate(LIMIT));
                         } catch (Exception e) { throw new AssertionError(e); }
                     });
                     check(pulse.get() && !onEdt.get(), "EDT avanza mientras el despacho espera.");
@@ -172,8 +178,9 @@ public final class ManagerWorkerScenarios {
                     dispatched++;
                     check(commands.add(result.command().orElseThrow().commandId()), "Sin ID de comando repetido.");
                 } else {
-                    check(result.outcome() == ManagerWorker.Outcome.REJECTED && result.command().isEmpty(),
-                            "Contención devuelve rechazo explícito sin encolar; no pierde la entrada.");
+                    check(result.outcome() == ManagerWorker.Outcome.DUPLICATE
+                            || result.outcome() == ManagerWorker.Outcome.PENDING,
+                            "Duplicado o pendiente conserva la entrada sin otro despacho.");
                 }
             }
             check(dispatched > 0, "Existe progreso de despacho.");

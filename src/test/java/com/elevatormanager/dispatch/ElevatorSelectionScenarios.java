@@ -238,7 +238,7 @@ public final class ElevatorSelectionScenarios {
             })) {
                 manager.start(); manager.submit(hall(2, Direction.UP));
                 var result = manager.awaitResult(LIMIT).orElseThrow();
-                check(result.outcome() == ManagerWorker.Outcome.REJECTED && result.command().isEmpty(), "Rechazo explícito sin envío.");
+                check(result.outcome() == ManagerWorker.Outcome.PENDING && result.command().isEmpty(), "Llamada conservada sin envío.");
                 for (var e : rig.elevators) { check(e.awaitResult(Duration.ZERO).isEmpty(), "Sin mensajes en cabinas cerradas."); }
                 manager.close(); check(manager.awaitTermination(LIMIT), "Manejador termina.");
             }
