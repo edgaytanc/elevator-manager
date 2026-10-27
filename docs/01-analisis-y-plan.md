@@ -470,3 +470,7 @@ Refinamientos actuales: agregar PAUSING/CLOSING como estados transitorios; Stop 
 | Versión | Fecha | Cambio |
 | --- | --- | --- |
 | 1.0.1 | 2026-10-19 | Copia para docs, enlaces a especificaciones previas al código y precisión de estados/controles. |
+
+## 15. Avance de T35 — Inicio de fase 6
+
+Base recibida: commit `94a81f2`, T34 cerrado y fase 5 completada. Se agrega SimulationController con arranque único, admisión por estado y enrutamiento polimórfico; 14 escenarios locales satisfactorios. Ver [implementación T35](implementacion/T35-controlador-ciclo-de-vida.md) y [validación local](comprobaciones/T35-validacion-local.md). La casilla de T35 se conserva pendiente de validación Maven e incorporación en el equipo de David. T36–T40 permanecen abiertas.
