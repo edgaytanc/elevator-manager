@@ -3,6 +3,13 @@ package com.elevatormanager.ui;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.GridLayout;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -11,44 +18,49 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-/**
- * Ventana mínima de arranque. Su creación y uso pertenecen al EDT.
- */
+/** Ventana mínima; su disposición espera la confirmación de cierre asíncrono. */
 public final class MainWindow {
-
+    private static final Logger LOGGER = Logger.getLogger(MainWindow.class.getName());
     private final JFrame frame;
 
-    public MainWindow() {
+    /** Todavía no hay sesión configurada en la entrada mínima; no hay actores que liberar. */
+    public MainWindow() { this(() -> CompletableFuture.completedFuture(null)); }
+
+    /** Una sesión existente se conecta con controller::closeAsync. */
+    public MainWindow(Supplier<? extends CompletionStage<?>> closeAction) {
         requireEventDispatchThread();
         frame = new JFrame("Elevator Manager");
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         JPanel content = new JPanel(new BorderLayout(12, 12));
         content.setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
-
         JPanel messages = new JPanel(new GridLayout(0, 1, 0, 12));
         messages.add(new JLabel("Elevator Manager", SwingConstants.CENTER));
-        messages.add(new JLabel("T11: arranque gráfico preparado.",
-                SwingConstants.CENTER));
-        messages.add(new JLabel("La simulación se incorporará en las siguientes tareas.",
-                SwingConstants.CENTER));
+        messages.add(new JLabel("Simulador de elevadores", SwingConstants.CENTER));
+        JLabel status = new JLabel("Listo.", SwingConstants.CENTER);
+        messages.add(status);
         content.add(messages, BorderLayout.CENTER);
-
         JButton closeButton = new JButton("Cerrar");
-        closeButton.addActionListener(event -> frame.dispose());
+        var close = new WindowCloseHandler(closeAction,
+                () -> { closeButton.setEnabled(false); status.setText("Cerrando y liberando recursos..."); },
+                frame::dispose,
+                error -> {
+                    status.setText("No se pudo completar el cierre. Consulta el registro.");
+                    closeButton.setEnabled(true);
+                    LOGGER.log(Level.SEVERE, "CIERRE_NO_COMPLETADO", error);
+                });
+        closeButton.addActionListener(event -> close.requestClose());
+        frame.addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent event) { close.requestClose(); }
+        });
         JPanel actions = new JPanel();
         actions.add(closeButton);
         content.add(actions, BorderLayout.SOUTH);
-
         frame.setContentPane(content);
         frame.setMinimumSize(new Dimension(560, 240));
         frame.pack();
         frame.setLocationRelativeTo(null);
     }
 
-    /**
-     * Muestra la ventana desde el hilo de eventos de Swing.
-     */
     public void showWindow() {
         requireEventDispatchThread();
         frame.setVisible(true);

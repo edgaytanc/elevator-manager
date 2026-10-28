@@ -68,3 +68,7 @@ Maven no está instalado en este entorno; no se ejecutó mvn clean verify ni se 
 - Construcción completa: 362 acumuladas esperadas sobre las 329 de T37.
 
 Confirmar las cifras reales y BUILD SUCCESS antes de cerrar T38. La GUI operativa, importación de lotes, cierre con handlers y extras mantienen sus tareas correspondientes; no se realizó una nueva aceptación gráfica manual de botones. El plan marca T37 cerrada con el commit confirmado y deja T38 pendiente de Maven.
+
+## 5. Confirmación posterior en el equipo de David
+
+Se verificó el 2026-10-28 la salida adjunta: GlobalResetTest, 33 pruebas específicas; grupo seleccionado, 158; construcción completa, 362. Todas sin fallos, errores u omisiones y BUILD SUCCESS. Se confirmó el commit `f4b654c`, comprobaciones de diferencias sin advertencias y árbol limpio. T38 queda cerrada; las limitaciones de Maven descritas arriba corresponden a la ejecución local inicial.

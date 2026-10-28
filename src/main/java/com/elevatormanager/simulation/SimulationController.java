@@ -22,10 +22,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 
-/** T38: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
+/** T39: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
 public final class SimulationController implements AutoCloseable {
     public enum Outcome { APPLIED, UNCHANGED, ENQUEUED, REJECTED }
 
@@ -39,8 +43,17 @@ public final class SimulationController implements AutoCloseable {
     private final ManagerWorker manager;
     private final ExecutionEventMailbox events = new ExecutionEventMailbox();
     private final AtomicLong commandIds = new AtomicLong();
-    private final ExecutorService coordinator = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "simulation-controller"));
+    private final AtomicReference<Thread> coordinatorThread = new AtomicReference<>();
+    private final ExecutorService coordinator = Executors.newSingleThreadExecutor(task -> {
+        var thread = new Thread(task, "simulation-controller");
+        coordinatorThread.set(thread);
+        return thread;
+    });
+    private final AtomicBoolean closeRequested = new AtomicBoolean();
+    private final AtomicBoolean shutdownStarted = new AtomicBoolean();
+    private final CompletableFuture<Result> closeCompletion = new CompletableFuture<>();
+    private final List<AutoCloseable> ownedResources = new java.util.ArrayList<>();
+    private final Thread shutdownThread = new Thread(this::finishClose, "simulation-shutdown");
     private volatile SimulationState state = SimulationState.RESET;
     private volatile Throwable failure;
     private CompletableFuture<Result> stopCompletion;
@@ -313,15 +326,39 @@ public final class SimulationController implements AutoCloseable {
                 && event.command().map(command -> command.epoch() == currentEpoch).orElse(true);
     }
 
-    /** Liberación local mínima; no equivale a Stop ni al reset físico. No hace join. */
-    @Override public void close() {
-        schedule(() -> {
-            beginClose();
-            return result(Outcome.APPLIED, "Cierre solicitado; falta confirmar terminaciones.");
+    /** APPLIED transfiere propiedad; un recurso rechazado sigue siendo del llamador. */
+    public CompletableFuture<Result> registerResource(AutoCloseable resource) {
+        Objects.requireNonNull(resource, "resource");
+        return schedule(() -> {
+            if (ownedResources.stream().anyMatch(known -> known == resource)) {
+                return result(Outcome.UNCHANGED, "Recurso ya registrado por identidad.");
+            }
+            ownedResources.add(resource);
+            return result(Outcome.APPLIED, "Recurso incorporado al cierre de la sesión.");
         });
     }
 
+    /** Solicitud idempotente; no espera actores ni recursos en el hilo llamador. */
+    @Override public void close() { closeAsync(); }
+
+    /** El futuro confirma liberación real. La copia visible no cancela el cierre privado. */
+    public CompletableFuture<Result> closeAsync() {
+        if (closeRequested.compareAndSet(false, true)) {
+            try { coordinator.execute(this::beginClose); }
+            catch (RejectedExecutionException exception) {
+                // Un fallo del motor pudo iniciar el mismo cierre entre el CAS y execute.
+                if (!shutdownStarted.get()) {
+                    failure = exception;
+                    closeCompletion.completeExceptionally(exception);
+                }
+            }
+        }
+        return closeCompletion.copy();
+    }
+
     private void beginClose() {
+        closeRequested.set(true);
+        if (!shutdownStarted.compareAndSet(false, true)) { return; }
         state = SimulationState.CLOSING;
         if (resetCompletion != null && !resetCompletion.isDone()) {
             resetCompletion.complete(result(Outcome.REJECTED, "Reset interrumpido por cierre."));
@@ -332,20 +369,72 @@ public final class SimulationController implements AutoCloseable {
         manager.close();
         elevators.forEach(ElevatorWorker::close);
         coordinator.shutdown();
+        try { shutdownThread.start(); }
+        catch (RuntimeException | Error exception) {
+            failure = exception;
+            closeCompletion.completeExceptionally(exception);
+        }
     }
 
-    /** Confirmación explícita fuera del EDT; un timeout nunca publica CLOSED. */
+    /** Propiedad de recursos transferida al cerrador tras terminar el coordinador. */
+    private void finishClose() {
+        boolean interrupted = false;
+        try {
+            boolean coordinatorEnded = false;
+            while (!coordinatorEnded) {
+                try { coordinatorEnded = coordinator.awaitTermination(1, TimeUnit.DAYS); }
+                catch (InterruptedException exception) { interrupted = true; }
+            }
+            boolean managerEnded = false;
+            while (!managerEnded) {
+                try { managerEnded = manager.awaitTermination(Duration.ofDays(1)); }
+                catch (InterruptedException exception) { interrupted = true; }
+            }
+            for (var elevator : elevators) {
+                boolean ended = false;
+                while (!ended) {
+                    try { ended = elevator.awaitTermination(Duration.ofDays(1)); }
+                    catch (InterruptedException exception) { interrupted = true; }
+                }
+            }
+            var errors = new java.util.ArrayList<Throwable>();
+            // Orden inverso de adquisición; intentar todos aunque falle uno.
+            for (int i = ownedResources.size() - 1; i >= 0; i--) {
+                try { ownedResources.get(i).close(); }
+                catch (Exception | LinkageError exception) { errors.add(exception); }
+            }
+            if (!errors.isEmpty()) {
+                var error = new IllegalStateException("No se confirmó la liberación de todos los recursos.");
+                errors.forEach(error::addSuppressed);
+                throw error;
+            }
+            ownedResources.clear();
+            state = SimulationState.CLOSED;
+            closeCompletion.complete(result(Outcome.APPLIED, "Trabajadores terminados y recursos liberados."));
+        } catch (RuntimeException | Error exception) {
+            if (failure != null && failure != exception) { exception.addSuppressed(failure); }
+            failure = exception;
+            closeCompletion.completeExceptionally(exception);
+        } finally {
+            if (interrupted) { Thread.currentThread().interrupt(); }
+        }
+    }
+
+    /** Espera acotada de cierre real y salida del cerrador; nunca publica CLOSED por timeout. */
     public boolean awaitTermination(Duration timeout) throws InterruptedException {
         long budget = checkedNanos(timeout);
-        long began = System.nanoTime();
-        if (!coordinator.awaitTermination(budget, TimeUnit.NANOSECONDS)) { return false; }
-        if (state != SimulationState.CLOSING && state != SimulationState.CLOSED) { return false; }
-        if (!manager.awaitTermination(Duration.ofNanos(remaining(began, budget)))) { return false; }
-        for (var elevator : elevators) {
-            if (!elevator.awaitTermination(Duration.ofNanos(remaining(began, budget)))) { return false; }
+        if (budget > 0 && (Thread.currentThread() == coordinatorThread.get()
+                || Thread.currentThread() == shutdownThread)) {
+            throw new IllegalStateException("No esperar el cierre desde un hilo que debe terminarlo.");
         }
-        state = SimulationState.CLOSED;
-        return true;
+        if (!closeRequested.get()) { return false; }
+        long began = System.nanoTime();
+        try { closeCompletion.get(budget, TimeUnit.NANOSECONDS); }
+        catch (TimeoutException | ExecutionException exception) { return false; }
+        long remaining = remaining(began, budget);
+        if (remaining > 0) { TimeUnit.NANOSECONDS.timedJoin(shutdownThread, remaining); }
+        return state == SimulationState.CLOSED && coordinator.isTerminated()
+                && !shutdownThread.isAlive();
     }
 
     private CompletableFuture<Result> schedule(Supplier<Result> operation) {
@@ -356,6 +445,10 @@ public final class SimulationController implements AutoCloseable {
         var future = new CompletableFuture<Result>();
         try {
             coordinator.execute(() -> {
+                if (closeRequested.get()) {
+                    future.complete(result(Outcome.REJECTED, "Cierre solicitado; acción descartada."));
+                    return;
+                }
                 try {
                     operation.get().whenComplete((value, error) -> {
                         if (error == null) { future.complete(value); }

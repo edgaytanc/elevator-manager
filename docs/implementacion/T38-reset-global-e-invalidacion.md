@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 6 — Implementar ciclo de vida y reset.
 - **Base confirmada:** T37, commit `29538a6`, con 32 pruebas específicas, 160 seleccionadas y 329 acumuladas sin fallos, errores u omisiones; BUILD SUCCESS.
-- **Estado:** implementación y escenarios locales satisfactorios; pendiente de validación Maven e incorporación en el equipo de David.
+- **Estado:** cerrada; Maven validado por David, commit `f4b654c` y árbol limpio.
 
 ## 1. Alcance y comportamiento
 
@@ -151,3 +151,7 @@ git status --short
 ```
 
 **Siguiente tarea:** T39 — Implementar cierre ordenado. T39–T40 siguen abiertas; la fase 6 aún no termina.
+
+## 11. Cierre confirmado de T38
+
+El 2026-10-28 David confirmó 33 pruebas específicas, 158 seleccionadas y 362 acumuladas sin fallos, errores u omisiones; BUILD SUCCESS. Commit `f4b654c`, comprobaciones de diferencias sin advertencias y árbol limpio. El estado pendiente de las instrucciones anteriores corresponde a la entrega inicial. La evolución del cierre se documenta en T39.
