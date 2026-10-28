@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–5 y T35–T38 cerradas; T39 con Maven y commit `74d467d` confirmados, pendiente de comprobación visual; T40 implementada y comprobada localmente, pendiente de Maven e incorporación. Fase 6 aún abierta.
+- **Estado:** fases 0–6 cerradas según confirmación de David y base T40 `f39eb3a` (418 pruebas Maven). T41 implementada y comprobada localmente; pendiente de Maven e incorporación en su equipo. Fase 7 en curso.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -489,8 +489,13 @@ Se implementa la barrera de limpieza del manejador y retorno de las N cabinas a 
 
 ## 19. Avance de T39 — Cierre ordenado
 
-Se implementa cierre automático con confirmación, espera fuera del EDT, propiedad y liberación de recursos, adaptación de handlers y un único flujo de botón/X que dispone la ventana tras confirmación. Ver [implementación T39](implementacion/T39-cierre-ordenado.md), [código completo](implementacion/T39-codigo-completo.md) y [validación local](comprobaciones/T39-validacion-local.md). David confirmó Maven: 32 específicas, 164 seleccionadas y 394 acumuladas, BUILD SUCCESS, commit `74d467d` y árbol limpio. La casilla T39 solo queda pendiente de confirmación visual de Cerrar/X. La fase 6 no está cerrada.
+Se implementa cierre automático con confirmación, espera fuera del EDT, propiedad y liberación de recursos, adaptación de handlers y un único flujo de botón/X que dispone la ventana tras confirmación. Ver [implementación T39](implementacion/T39-cierre-ordenado.md), [código completo](implementacion/T39-codigo-completo.md) y [validación local](comprobaciones/T39-validacion-local.md). David confirmó Maven: 32 específicas, 164 seleccionadas y 394 acumuladas, BUILD SUCCESS, commit `74d467d` y árbol limpio. Actualización al iniciar T41: David confirmó la comprobación visual de Cerrar/X y el cierre de fase 6; la casilla T39 está completada.
 
 ## 20. Avance T40 — Carreras del ciclo de vida
 
-Se agregan 24 escenarios con actores reales, productores simultáneos, barreras con plazos y entrega diferida al EDT. Cubren reset en movimiento/parada, Stop repetido, reset desde detenido, cierre durante reset, invalidación de mensajes y conservación/terminación de identidades Thread. No cambian las clases de producción. Ver [implementación T40](implementacion/T40-carreras-ciclo-de-vida.md), [código completo](implementacion/T40-codigo-completo.md) y [validación local](comprobaciones/T40-validacion-local.md). La regresión independiente cuenta 373 escenarios en 20 grupos y T40 se repite cinco veces en su versión final. Las 418 pruebas Maven acumuladas son una expectativa, no una ejecución local. T40 queda pendiente de Maven e incorporación; la fase 6 también conserva pendiente la comprobación visual de T39.
+Se agregan 24 escenarios con actores reales, productores simultáneos, barreras con plazos y entrega diferida al EDT. Cubren reset en movimiento/parada, Stop repetido, reset desde detenido, cierre durante reset, invalidación de mensajes y conservación/terminación de identidades Thread. No cambian las clases de producción. Ver [implementación T40](implementacion/T40-carreras-ciclo-de-vida.md), [código completo](implementacion/T40-codigo-completo.md) y [validación local](comprobaciones/T40-validacion-local.md). La regresión independiente cuenta 373 escenarios en 20 grupos y T40 se repite cinco veces en su versión final. Actualización al iniciar T41: David confirmó las 418 pruebas Maven acumuladas, BUILD SUCCESS, commit `f39eb3a`, árbol limpio y comprobación visual T39. La fase 6 queda cerrada. Maven no se ejecutó en este entorno local.
+
+
+## 21. Avance T41 — Logging por elevador
+
+Base recibida: T40, commit `f39eb3a`; fases 0–6 cerradas. Se agregan LoggerFactory, EventFormatter y LoggingDemo: archivos UTF-8 por cabina, consola sin propagación a handlers padre, identidades estables, append, exclusión de sesiones en el directorio y liberación de recursos mediante el contrato T39. Los 16 escenarios nuevos verifican aislamiento, escritura concurrente, reapertura y propiedad del controlador. Ver [implementación T41](implementacion/T41-logging-por-elevador.md), [código completo](implementacion/T41-codigo-completo.md) y [validación local](comprobaciones/T41-validacion-local.md). La tarjeta queda pendiente de Maven e incorporación en el equipo de David; se esperan 434 pruebas acumuladas. T42 integrará los eventos obligatorios del motor y las decisiones del manejador.
