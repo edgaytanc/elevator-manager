@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–5 y T35 cerradas; T36 implementada y comprobada localmente, pendiente de validación Maven del usuario.
+- **Estado:** fases 0–5 y T35–T36 cerradas; T37 implementada y comprobada localmente, pendiente de validación Maven del usuario.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -244,7 +244,7 @@ elevator-manager/
 **Entrada:** despacho y movimiento integrados. **Salida:** ciclo de vida consistente. **Dependencias:** fase 5. **Prioridad:** P0.
 
 - [x] **T35 — Implementar el controlador del ciclo de vida.** Etiqueta: BASE. Centralizar transiciones y validar acciones por estado. **Aceptación:** pulsaciones repetidas de Start no crean trabajadores duplicados ni ejecutan dos veces un comando.
-- [ ] **T36 — Implementar Stop y continuación con Start.** Etiqueta: BASE. Detener despacho, coordinar fronteras seguras de movimiento y preservar pendientes. **Aceptación:** STOPPING termina en STOPPED; Start continúa sin perder o volver a atender solicitudes ya completadas.
+- [x] **T36 — Implementar Stop y continuación con Start.** Etiqueta: BASE. Detener despacho, coordinar fronteras seguras de movimiento y preservar pendientes. **Aceptación:** STOPPING termina en STOPPED; Start continúa sin perder o volver a atender solicitudes ya completadas.
 - [ ] **T37 — Implementar reset prioritario por cabina.** Etiqueta: BASE. Vaciar agenda y comandos antiguos, resolver posición en tránsito y volver al piso 1 respetando movimiento. **Aceptación:** no se teletransporta ni atiende trabajo cancelado y se restablece dirección arriba.
 - [ ] **T38 — Coordinar reset global e invalidación de mensajes.** Etiqueta: BASE. Vaciar pendientes del manejador y esperar confirmación de todas las cabinas; usar época/generación o mecanismo equivalente. **Aceptación:** ningún mensaje en vuelo de la ejecución anterior reaparece y RESET solo se alcanza al terminar todos los retornos.
 - [ ] **T39 — Implementar cierre ordenado.** Etiqueta: BASE. Finalizar trabajadores, despertar esperas, cerrar handlers y liberar recursos sin bloquear el EDT. **Aceptación:** cerrar con trabajo pendiente no deja hilos vivos ni archivos bloqueados por la aplicación.
@@ -477,4 +477,8 @@ Base recibida: commit `94a81f2`, T34 cerrado y fase 5 completada. Se agrega Simu
 
 ## 16. Avance de T36 — Stop y continuación
 
-Se implementan STOPPING → STOPPED con confirmaciones del manejador y todas las cabinas, y Start desde STOPPED sobre los mismos actores y pendientes. Se conservan recorrido, época, deduplicación y restante de parada. Ver [implementación T36](implementacion/T36-stop-y-continuacion.md), [código completo](implementacion/T36-codigo-completo.md) y [validación local](comprobaciones/T36-validacion-local.md). La casilla de T36 queda pendiente hasta confirmar Maven en el equipo de David. No se cierran T37–T40.
+Se implementan STOPPING → STOPPED con confirmaciones del manejador y todas las cabinas, y Start desde STOPPED sobre los mismos actores y pendientes. Se conservan recorrido, época, deduplicación y restante de parada. Ver [implementación T36](implementacion/T36-stop-y-continuacion.md), [código completo](implementacion/T36-codigo-completo.md) y [validación local](comprobaciones/T36-validacion-local.md). T36 validada por David: 21 pruebas específicas, 128 seleccionadas y 297 acumuladas, BUILD SUCCESS, commit `1f9b0c0` y árbol limpio. No se cierran T37–T40.
+
+## 17. Avance de T37 — Reset prioritario por cabina
+
+Se implementa el retorno local con adopción de época, cancelación de agendas e inbox, conservación del tramo en curso y final en 1/UP retenido hasta continuar. Ver [implementación T37](implementacion/T37-reset-prioritario-cabina.md), [código completo](implementacion/T37-codigo-completo.md) y [validación local](comprobaciones/T37-validacion-local.md). La casilla T37 queda pendiente de Maven en el equipo de David. El reset global y la invalidación del manejador permanecen en T38; T39–T40 siguen abiertas.

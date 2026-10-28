@@ -102,7 +102,7 @@ public final class ExecutionEventScenarios {
 
     public static void rejectedCommandHasNoCompletion() throws Exception {
         try (var w = worker(20, 60_000)) {
-            w.start(); send(w, new Command.Reset(1, 1, 1));
+            w.start(); send(w, new Command.Reset(1, 0, 1));
             var e = event(w);
             check(e.type() == COMMAND_REJECTED && e.command().orElseThrow().commandId() == 1
                     && e.canonicalRequestId().isEmpty() && !e.detail().isBlank(), "Rechazo correlacionable.");

@@ -77,8 +77,8 @@ public final class ElevatorWorkerScenarios {
             worker.start();
             worker.submit(destination(2, 2));
             check(result(worker).outcome() == ElevatorWorker.Outcome.REJECTED, "Rechaza destinatario.");
-            worker.submit(new Command.Reset(9, 1, 1));
-            check(result(worker).outcome() == ElevatorWorker.Outcome.REJECTED, "Reset sin falso éxito.");
+            worker.submit(new Command.Reset(9, 0, 1));
+            check(result(worker).outcome() == ElevatorWorker.Outcome.REJECTED, "Reset con época no creciente.");
             worker.submit(new Command.Destination(10, 1,
                     new CabinRequest(UUID.randomUUID(), 1, 2, Instant.now(), 1)));
             check(result(worker).outcome() == ElevatorWorker.Outcome.REJECTED, "Rechaza otra época.");

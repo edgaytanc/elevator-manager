@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-27, Guatemala.
 - **Fase:** 6 — Implementar ciclo de vida y reset.
 - **Base confirmada:** T35, commit `9a5f7f4`, 14 pruebas específicas y 276 acumuladas satisfactorias; árbol limpio informado por David.
-- **Estado:** implementación y escenarios locales satisfactorios; pendiente de validación Maven e incorporación en el equipo de David.
+- **Estado:** cerrada funcionalmente; Maven validado por David y commit `1f9b0c0`.
 
 ## 1. Comportamiento implementado
 
@@ -143,3 +143,7 @@ git status --short
 ```
 
 **Siguiente tarea:** T37 — Implementar reset prioritario por cabina. T37–T40 permanecen abiertas; la fase 6 no está cerrada.
+
+## 11. Cierre confirmado de T36
+
+David confirmó el 2026-10-27: 21 pruebas específicas, 128 del grupo seleccionado y 297 acumuladas, sin fallos, errores u omisiones; BUILD SUCCESS. Commit `1f9b0c0` y árbol limpio. Se detectó una línea vacía al final de T36-codigo-completo.md; su normalización documental no cambia la validación funcional. El estado pendiente de las instrucciones anteriores corresponde a la entrega original.

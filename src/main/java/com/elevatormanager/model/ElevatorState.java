@@ -29,6 +29,7 @@ public final class ElevatorState {
     private long legStartedNanos;
     private long dwellStartedNanos;
     private long heldDwellRemainingNanos;
+    private boolean resetting;
     private final Map<UUID, CabinRequest> cabinRequests = new LinkedHashMap<>();
     private final Map<UUID, HallRequest> hallRequests = new LinkedHashMap<>();
     private final Map<UUID, Request> admissionOrder = new LinkedHashMap<>();
@@ -52,6 +53,41 @@ public final class ElevatorState {
     public int getCurrentFloor() { return currentFloor; }
     public Direction getDirection() { return direction; }
     public ElevatorPhase getPhase() { return phase; }
+    public boolean isResetting() { return resetting; }
+
+    /** Adopta época y cancela servicio; conserva exactamente el tramo físico iniciado. */
+    public void beginReset(long newEpoch) {
+        if (newEpoch <= epoch) { throw new IllegalArgumentException("Reset requiere una época mayor."); }
+        if (resetting) { throw new IllegalStateException("Ya hay un retorno en curso."); }
+        long nextRevision = Math.incrementExact(revision);
+        cabinRequests.clear();
+        hallRequests.clear();
+        admissionOrder.clear();
+        epoch = newEpoch;
+        resetting = true;
+        heldDwellRemainingNanos = 0;
+        if (phase == ElevatorPhase.MOVING) {
+            // No altera legStartedNanos, nextFloor ni sentido del tramo parcial.
+            committedFloor = nextFloor;
+        } else {
+            phase = ElevatorPhase.IDLE;
+            nextFloor = 0;
+            committedFloor = 0;
+        }
+        revision = nextRevision;
+    }
+
+    /** Confirmar solo tras retorno físico y sin agregar una parada de pasajeros. */
+    public void finishReset() {
+        if (!resetting || phase != ElevatorPhase.IDLE || currentFloor != 1) {
+            throw new IllegalStateException("Reset sin retorno físico confirmado.");
+        }
+        long nextRevision = Math.incrementExact(revision);
+        resetting = false;
+        direction = Direction.UP;
+        committedFloor = 0;
+        revision = nextRevision;
+    }
 
     public OptionalInt getCommittedFloor() {
         return committedFloor == 0 ? OptionalInt.empty() : OptionalInt.of(committedFloor);
@@ -147,6 +183,7 @@ public final class ElevatorState {
     /** Abre una parada solo si existe servicio compatible en este piso. */
     public List<Request> beginDwell(Direction serviceDirection, long nowNanos) {
         Objects.requireNonNull(serviceDirection, "serviceDirection");
+        if (resetting) { throw new IllegalStateException("No hay servicio durante reset."); }
         if (phase != ElevatorPhase.IDLE) {
             throw new IllegalStateException("La parada exige una cabina alineada y libre.");
         }
@@ -229,7 +266,7 @@ public final class ElevatorState {
                 nextFloor == 0 ? OptionalInt.empty() : OptionalInt.of(nextFloor), direction, phase,
                 phase == ElevatorPhase.HELD ? Optional.of(ElevatorPhase.DWELLING) : Optional.empty(),
                 phase == ElevatorPhase.HELD ? Optional.of(ElevatorSnapshot.HoldReason.STOP) : Optional.empty(),
-                ElevatorSnapshot.Mode.NORMAL,
+                resetting ? ElevatorSnapshot.Mode.RESET_RETURN : ElevatorSnapshot.Mode.NORMAL,
                 switch (phase) {
                     case MOVING -> config.movementTimeMillis() * 1_000_000L;
                     case DWELLING, HELD -> config.dwellTimeMillis() * 1_000_000L;
@@ -261,6 +298,7 @@ public final class ElevatorState {
      */
     public boolean addPendingRequest(Request request) {
         Objects.requireNonNull(request, "request");
+        if (resetting) { throw new IllegalArgumentException("No se admite servicio durante reset."); }
         if (!(request instanceof CabinRequest) && !(request instanceof HallRequest)) {
             throw new IllegalArgumentException("Tipo de solicitud no soportado.");
         }

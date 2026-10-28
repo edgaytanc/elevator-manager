@@ -58,12 +58,24 @@ public final class CommandLedger {
         }
     }
 
+    /** Cancela comandos aún pendientes y libera identidades al cambiar de época. */
+    public List<Completion> clearForReset() {
+        List<Completion> cancelled = new ArrayList<>();
+        awaitingService.forEach((id, waiting) -> waiting.forEach(c -> cancelled.add(new Completion(c, id))));
+        commands.clear();
+        requests.clear();
+        active.clear();
+        awaitingService.clear();
+        completions.clear();
+        return List.copyOf(cancelled);
+    }
+
     /** Solo el actor ejecuta esta operación, serializada con movimiento y servicio. */
     public Decision admit(Command command) {
         Objects.requireNonNull(command, "command");
         // Mensajes ajenos o no autorizados no reservan identidades locales.
         if (command.elevatorId() != state.getId()) { return reject("Destinatario incorrecto."); }
-        if (command instanceof Command.Reset) { return reject("Reset operativo pendiente de fase 6."); }
+        if (command instanceof Command.Reset) { return reject("Reset debe pasar por el control prioritario del trabajador."); }
         if (command.epoch() != state.getEpoch()) { return reject("Época distinta de la vigente."); }
         if (!command.validateAgainst(state.getConfig()).isValid()) {
             return reject("Comando inválido para este edificio.");

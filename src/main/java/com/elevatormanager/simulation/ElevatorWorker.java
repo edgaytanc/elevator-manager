@@ -24,7 +24,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T36: ejecución serializada, detención segura y continuación del mismo actor.
+ * T37: reset prioritario por cabina, retorno físico y controles serializados.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -66,6 +66,11 @@ public final class ElevatorWorker implements AutoCloseable {
     private boolean stopped;
     private boolean resumeRequested;
     private CompletableFuture<Void> stopConfirmation;
+    private record ResetTicket(Command.Reset command, CompletableFuture<ElevatorSnapshot> response) { }
+    private record ResetOperation(Command.Reset command, CompletableFuture<ElevatorSnapshot> completion) { }
+    private final ArrayDeque<ResetTicket> resetInbox = new ArrayDeque<>();
+    private ResetOperation lastReset;
+    private boolean resetHeld;
     private Optional<Direction> completedSweep = Optional.empty();
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
@@ -100,12 +105,33 @@ public final class ElevatorWorker implements AutoCloseable {
         lock.lock();
         try {
             if (lifecycle != Lifecycle.RUNNING) { return false; }
+            if (command instanceof Command.Reset reset) {
+                resetInbox.addLast(new ResetTicket(reset, new CompletableFuture<>()));
+                available.signalAll();
+                return true;
+            }
+            if (resetHeld || !resetInbox.isEmpty()) { return false; }
             inbox.addLast(command);
             available.signal();
             return true;
         } finally {
             lock.unlock();
         }
+    }
+
+    /** El futuro confirma piso 1/UP; aceptar el control no significa terminar el retorno. */
+    public CompletableFuture<ElevatorSnapshot> requestReset(Command.Reset command) {
+        Objects.requireNonNull(command, "command");
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Cabina no disponible."));
+            }
+            var response = new CompletableFuture<ElevatorSnapshot>();
+            resetInbox.addLast(new ResetTicket(command, response));
+            available.signalAll();
+            return response.copy();
+        } finally { lock.unlock(); }
     }
 
     /** Suscripción adicional sin callbacks. No reproduce eventos anteriores al registro. */
@@ -129,6 +155,12 @@ public final class ElevatorWorker implements AutoCloseable {
         try {
             if (lifecycle != Lifecycle.RUNNING) { return Submission.UNAVAILABLE; }
             if (published.get() != expected) { return Submission.STALE; }
+            if (command instanceof Command.Reset reset) {
+                resetInbox.addLast(new ResetTicket(reset, new CompletableFuture<>()));
+                available.signalAll();
+                return Submission.ENQUEUED;
+            }
+            if (resetHeld || !resetInbox.isEmpty()) { return Submission.UNAVAILABLE; }
             inbox.addLast(command);
             available.signal();
             return Submission.ENQUEUED;
@@ -139,8 +171,8 @@ public final class ElevatorWorker implements AutoCloseable {
     public CompletableFuture<Void> requestStop() {
         lock.lock();
         try {
-            if (lifecycle != Lifecycle.RUNNING) {
-                return CompletableFuture.failedFuture(new IllegalStateException("Cabina no disponible."));
+            if (lifecycle != Lifecycle.RUNNING || resetHeld || !resetInbox.isEmpty()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Cabina no disponible para Stop."));
             }
             if (!stopRequested) {
                 stopRequested = true;
@@ -155,7 +187,9 @@ public final class ElevatorWorker implements AutoCloseable {
     public boolean resume() {
         lock.lock();
         try {
-            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped) { return false; }
+            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped
+                    || state.isResetting() || !resetInbox.isEmpty()) { return false; }
+            resetHeld = false;
             stopRequested = false;
             resumeRequested = true;
             available.signalAll();
@@ -226,12 +260,23 @@ public final class ElevatorWorker implements AutoCloseable {
             while (true) {
                 Result result = null;
                 CompletableFuture<Void> stoppedAck = null;
+                List<Runnable> deferred = new ArrayList<>();
                 List<Service> notifications = new ArrayList<>();
                 lock.lockInterruptibly();
                 try {
                     if (lifecycle != Lifecycle.RUNNING) { break; }
                     long now = System.nanoTime();
-                    if (stopRequested) {
+                    if (!resetInbox.isEmpty()) {
+                        processReset(resetInbox.removeFirst(), now, deferred);
+                    } else if (state.isResetting()) {
+                        if (state.getPhase() == ElevatorPhase.MOVING) {
+                            if (state.completeLegIfDue(now)) {
+                                published.set(capture(now));
+                                emit(ExecutionEvent.Type.ARRIVED, now);
+                                continueReset(now, deferred);
+                            } else { available.awaitNanos(state.phaseRemainingNanos(now)); }
+                        } else { continueReset(now, deferred); }
+                    } else if (stopRequested) {
                         // Nunca drenar inbox ni abrir servicio después de solicitar Stop.
                         if (state.getPhase() == ElevatorPhase.MOVING) {
                             if (state.completeLegIfDue(now)) {
@@ -288,6 +333,7 @@ public final class ElevatorWorker implements AutoCloseable {
                     lock.unlock();
                 }
                 flushEvents();
+                for (Runnable action : deferred) { action.run(); }
                 if (stoppedAck != null) { stoppedAck.complete(null); }
                 if (result != null) { results.add(result); }
                 for (Service notification : notifications) { services.add(notification); }
@@ -299,11 +345,14 @@ public final class ElevatorWorker implements AutoCloseable {
             failure = exception;
         } finally {
             List<Command> abandoned;
+            List<ResetTicket> abandonedResets;
             lock.lock();
             try {
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
                 abandoned = new ArrayList<>(inbox);
                 inbox.clear();
+                abandonedResets = new ArrayList<>(resetInbox);
+                resetInbox.clear();
             } finally {
                 lock.unlock();
             }
@@ -312,17 +361,126 @@ public final class ElevatorWorker implements AutoCloseable {
                 emitAdmission(rejected, System.nanoTime());
                 results.add(rejected);
             }
+            for (ResetTicket ticket : abandonedResets) {
+                Result rejected = new Result(ticket.command(), Outcome.REJECTED, "Cabina finalizada antes de procesar reset.");
+                emitAdmission(rejected, System.nanoTime());
+                results.add(rejected);
+            }
             emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
                     : ExecutionEvent.Type.WORKER_FAILED, System.nanoTime());
             flushEvents();
+            var resetFailure = new IllegalStateException("Cabina terminada antes de completar reset.", failure);
+            for (ResetTicket ticket : abandonedResets) { ticket.response().completeExceptionally(resetFailure); }
+            if (lastReset != null && !lastReset.completion().isDone()) {
+                lastReset.completion().completeExceptionally(resetFailure);
+            }
             if (stopConfirmation != null && !stopConfirmation.isDone()) {
                 stopConfirmation.completeExceptionally(new IllegalStateException("Cabina terminada antes de confirmar Stop.", failure));
             }
         }
     }
 
+    /** Admisión del control: cierre > reset > Stop > servicio. Solo escribe el actor. */
+    private void processReset(ResetTicket ticket, long now, List<Runnable> deferred) {
+        Command.Reset command = ticket.command();
+        if (command.elevatorId() != state.getId() || !command.validateAgainst(state.getConfig()).isValid()) {
+            rejectReset(ticket, "Reset dirigido a otra cabina.", now, deferred);
+            return;
+        }
+        if (lastReset != null && lastReset.command().sameContent(command)) {
+            var replay = new Result(command, Outcome.DUPLICATE, "Repetición de reset sin reiniciar retorno.",
+                    Optional.empty(), Optional.empty(), true);
+            emitAdmission(replay, now);
+            deferred.add(() -> results.add(replay));
+            var operation = lastReset;
+            deferred.add(() -> operation.completion().whenComplete((snapshot, error) -> {
+                if (error == null) { ticket.response().complete(snapshot); }
+                else { ticket.response().completeExceptionally(error); }
+            }));
+            return;
+        }
+        if (state.isResetting() || command.epoch() <= state.getEpoch()) {
+            rejectReset(ticket, "Reset en curso o época no creciente.", now, deferred);
+            return;
+        }
+        // Cancelaciones conservan el snapshot y la correlación de la época anterior.
+        for (var cancelled : ledger.clearForReset()) {
+            eventBatch.add(new ExecutionEvent(++eventSequence, ExecutionEvent.Type.COMMAND_CANCELLED,
+                    state.snapshot(now), Optional.of(cancelled.command()),
+                    Optional.of(cancelled.canonicalRequestId()), "Cancelado por reset prioritario."));
+        }
+        while (!inbox.isEmpty()) {
+            var rejected = new Result(inbox.removeFirst(), Outcome.REJECTED, "Descartado del inbox por reset.");
+            emitAdmission(rejected, now);
+            deferred.add(() -> results.add(rejected));
+        }
+        if (stopConfirmation != null && !stopConfirmation.isDone()) {
+            var replaced = stopConfirmation;
+            deferred.add(() -> replaced.completeExceptionally(new IllegalStateException("Stop sustituido por reset.")));
+        }
+        stopRequested = false;
+        stopped = false;
+        resumeRequested = false;
+        resetHeld = true;
+        completedSweep = Optional.empty();
+        state.beginReset(command.epoch());
+        lastReset = new ResetOperation(command, new CompletableFuture<>());
+        var operation = lastReset;
+        deferred.add(() -> operation.completion().whenComplete((snapshot, error) -> {
+            if (error == null) { ticket.response().complete(snapshot); }
+            else { ticket.response().completeExceptionally(error); }
+        }));
+        published.set(capture(now));
+        var accepted = new Result(command, Outcome.ACCEPTED, "Reset adoptado; retorno pendiente.");
+        emitAdmission(accepted, now);
+        emitReset(ExecutionEvent.Type.RESET_STARTED, now);
+        deferred.add(() -> results.add(accepted));
+        continueReset(now, deferred);
+    }
+
+    private void rejectReset(ResetTicket ticket, String detail, long now, List<Runnable> deferred) {
+        var rejected = new Result(ticket.command(), Outcome.REJECTED, detail);
+        emitAdmission(rejected, now);
+        deferred.add(() -> results.add(rejected));
+        deferred.add(() -> ticket.response().completeExceptionally(new IllegalArgumentException(detail)));
+    }
+
+    private void continueReset(long now, List<Runnable> deferred) {
+        if (state.getPhase() == ElevatorPhase.MOVING) { return; }
+        Direction previous = state.getDirection();
+        if (state.getCurrentFloor() == 1) {
+            state.finishReset();
+            stopRequested = true;
+            stopped = true;
+            stopConfirmation = CompletableFuture.completedFuture(null);
+            published.set(capture(now));
+            emitDirectionChange(previous, now);
+            emitReset(ExecutionEvent.Type.RESET_COMPLETED, now);
+            var operation = lastReset;
+            var confirmation = published.get().elevator();
+            deferred.add(() -> operation.completion().complete(confirmation));
+        } else {
+            if (state.getCommittedFloor().isPresent()) { state.beginNextLeg(now); }
+            else { state.beginJourney(1, now); }
+            published.set(capture(now));
+            emitDirectionChange(previous, now);
+            emit(ExecutionEvent.Type.DEPARTED, now);
+        }
+    }
+
+    private void emitReset(ExecutionEvent.Type type, long now) {
+        eventBatch.add(new ExecutionEvent(++eventSequence, type, state.snapshot(now),
+                Optional.of(lastReset.command()), Optional.empty(), ""));
+    }
+
     /** Sección local breve: sin I/O, callbacks ni bloqueos de otras cabinas. */
     private Result admit(Command command) {
+        if (lastReset != null && command.epoch() == lastReset.command().epoch()
+                && command.commandId() == lastReset.command().commandId()) {
+            var rejected = new Result(command, Outcome.REJECTED, "ID reservado por el reset de esta época.");
+            emitAdmission(rejected, System.nanoTime());
+            return rejected;
+        }
         CommandLedger.Decision decision = ledger.admit(command);
         published.set(capture(System.nanoTime()));
         Outcome outcome = switch (decision.kind()) {

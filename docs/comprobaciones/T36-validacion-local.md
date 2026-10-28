@@ -59,3 +59,7 @@ Maven no está instalado en este entorno. No se ejecutó mvn clean verify aquí 
 Confirmar las cifras reales y BUILD SUCCESS antes de marcar T36 cerrada. No hay nueva aceptación visual manual: la ventana operativa y sus botones se implementan en fase 9. Se verificó la respuesta del EDT mediante eventos Swing en los escenarios.
 
 El plan marca T35 cerrada con la evidencia aportada por el usuario; T36 permanece pendiente del cierre Maven. T37–T40 siguen abiertas.
+
+## 5. Confirmación posterior en el equipo de David
+
+El 2026-10-27 se verificó la salida adjunta: 21 pruebas específicas, 128 seleccionadas y 297 acumuladas, todas sin fallos, errores u omisiones y BUILD SUCCESS. Commit `1f9b0c0` y árbol limpio. T36 queda cerrada funcionalmente. La restricción de Maven anterior corresponde al entorno local inicial. La línea vacía adicional detectada en el EOF de T36-codigo-completo.md se normaliza sin modificar código Java.

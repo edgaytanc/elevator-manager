@@ -164,7 +164,7 @@ public final class ConcurrentAdmissionScenarios {
         check(f.ledger.admit(destination(11, cabin(3))).kind() == CommandLedger.Kind.ADDED,
                 "Época ajena no reserva ID vigente.");
         check(f.ledger.admit(new Command.Reset(12, 1, 1)).kind() == CommandLedger.Kind.REJECTED,
-                "Reset operativo pendiente.");
+                "Reset requiere el canal prioritario, no el registro de servicio.");
         check(f.ledger.admit(destination(12, cabin(4))).kind() == CommandLedger.Kind.ADDED,
                 "Reset rechazado no reserva comando de servicio.");
         check(f.ledger.admit(destination(13, cabin(201))).kind() == CommandLedger.Kind.REJECTED,
