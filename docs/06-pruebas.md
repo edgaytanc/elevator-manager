@@ -198,3 +198,10 @@ Esta ampliación especifica pruebas futuras; no declara un parser implementado n
 | Lectura T46 | Cancelación, inexistencia, vacío y permisos. | Resultado documentado, causa de lectura preservada y aplicación utilizable. |
 
 El límite de longitud cuenta puntos de código: incluir comentarios con caracteres suplementarios para evitar confundirlos con unidades UTF-16. Probar ceros iniciales y valor numérico por separado de la longitud de línea. Los casos de límites requieren archivos construidos exactamente en bytes/líneas, no solo nombres de ejemplo.
+
+
+## Avance T44 — Parser implementado, 2026-10-28
+
+RequestFileScenarios contiene 48 escenarios ejecutables y RequestFileTest los mismos 48 adaptadores JUnit. Se comprobaron localmente léxico, UTF-8, BOM, terminadores, límites exactos, descriptores, diagnóstico completo, ausencia de lote parcial, streams, interrupción y concurrencia; la matriz de dominio se contrasta con los modelos existentes. Se verifican también los cinco archivos válidos y las 26 entradas inválidas de 07 mediante el diagnóstico Java real. Evidencia y límites en [validación T44](comprobaciones/T44-validacion-local.md). Maven no está disponible localmente; se esperan 506 pruebas acumuladas al ejecutarlo en el equipo de David.
+
+Las carreras de importación/confirmación, sustitución de un lote en el controlador y consumo único al iniciar siguen en T45. La colección de archivos de muestra, cancelación de selector y pruebas específicas de permisos siguen en T46. Las comprobaciones de T44 no acreditan esos comportamientos todavía.

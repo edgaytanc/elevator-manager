@@ -4,7 +4,7 @@
 - **Versión del contrato de archivo:** 1.0.0.
 - **Fecha:** 2026-10-28, Guatemala.
 - **Tarjeta:** T43; base T42 validada en `ae5a1bf`, 458 pruebas Maven satisfactorias.
-- **Estado:** contrato documental definido para implementar en T44–T46; aún no hay parser ni importación operativa.
+- **Estado:** contrato 1.0.0 sin cambios de reglas. Parser T44 implementado y comprobado localmente, pendiente de Maven; confirmación/importación operativa todavía en T45.
 - **Referencias:** [decisiones D17–D23](02-decisiones.md), [arquitectura](03-arquitectura.md), [resumen previo en 05](05-protocolo.md#7-formato-de-archivo-de-solicitudes).
 
 ## 1. Alcance y autoridad
@@ -79,7 +79,7 @@ START, STOP, RESET, PAUSE, RESUME, WAIT, SLEEP, STATUS, SHUTDOWN y mensajes V1 s
 
 ## 5. Lectura, identidad y preparación
 
-T44 leerá y validará el archivo completo contra una configuración capturada, produciendo descriptores inmutables en orden, con su número de línea original. El parser no debe crear actores, alterar agendas, elegir cabina para HALL, consumir IDs de comando ni mover elevadores.
+RequestFileReader de T44 lee y valida el archivo completo contra una configuración capturada, produciendo descriptores inmutables en orden, con su número de línea original. El parser no debe crear actores, alterar agendas, elegir cabina para HALL, consumir IDs de comando ni mover elevadores.
 
 T45 confirmará el lote únicamente después de revalidar la misma sesión, configuración, época y estado RESET. Al confirmar se asignará un UUID nuevo por instrucción y la época vigente; createdAt será un mismo Instant capturado para esa confirmación de lote. Los UUID no se escriben en el archivo y se conservan para ese lote confirmado. Un intento fallido no reemplaza el lote anterior ni publica solicitudes de la lectura rechazada.
 
@@ -261,4 +261,4 @@ El error está en la línea física 4. Las dos instrucciones anteriores no se ca
 - T45: lectura fuera del EDT, doble comprobación de RESET/contexto, sustitución atómica, identidades y presentación del lote una vez al iniciar.
 - T46: archivos de ejemplo descargables y pruebas de cancelación, inexistencia, vacío y permisos, además de la matriz de bordes de este contrato.
 
-T43 no modifica fuentes Java ni añade tests ejecutables. Los ejemplos en este documento son especificación; todavía no demuestran una importación funcionando.
+T43 definió este contrato sin modificar Java ni añadir tests. T44 implementa su lectura y validación; sus 48 escenarios y el contraste de estos ejemplos se documentan en la [validación T44](comprobaciones/T44-validacion-local.md). Esto todavía no demuestra una importación conectada al controlador: corresponde a T45.

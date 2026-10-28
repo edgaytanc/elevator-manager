@@ -379,3 +379,12 @@ LoggerFactory configura destinos independientes elevadorN.log y manejador.log, a
 ## Contrato T43 — Preparación de lotes
 
 [07 — Formato de archivo](07-formato-archivo-solicitudes.md) es la referencia normativa para RequestFileReader y PreparedRequestBatch futuros. La lectura de T44 produce descriptores inmutables con línea física y orden; no inicia actores ni consume IDs de comando. La confirmación T45 revalida sesión, configuración, época y RESET, y asigna identidades nuevas al lote sustituido. El importador conserva repetidos; la deduplicación de solicitudes activas sigue siendo del dominio. El contrato documental no agrega todavía un lector ni métodos de importación al controlador.
+
+
+## Implementación T44 — Lectura pura de lotes
+
+RequestFileReader no guarda estado entre llamadas y no depende de Swing, del controlador ni de los actores. read(Path, config) posee y cierra su stream; read(InputStream, config) recibe un stream prestado que no cierra. Ambas lecturas consumen como máximo 1 MiB + 1 byte antes de rechazar el exceso. parse(byte[], config) copia únicamente entradas dentro del límite y usa un decoder UTF-8 estricto. La API es síncrona: T45 deberá invocarla fuera del EDT y revalidar el contexto al confirmar.
+
+RequestEntry.Hall y RequestEntry.Cabin son descriptores sellados e inmutables, sin identidades de ejecución. PreparedRequestBatch copia las entradas, comprueba configuración, orden estricto de líneas y metadatos, y conserva los repetidos funcionales. BatchReadResult contiene exclusivamente un lote válido o diagnósticos, nunca entradas parciales. Las incidencias conservan códigos, línea física cuando procede, causa y formato esperado sin volcar el archivo. No existe aquí un campo mutable de lote anterior que el lector pueda sobrescribir.
+
+Se comprueba interrupción antes y entre lecturas y durante el recorrido de líneas, conservando el flag y causa InterruptedIOException. No se garantiza interrumpir un read bloqueado de cualquier InputStream externo. La misma instancia puede atender lecturas independientes en paralelo; compartir simultáneamente un mismo stream mutable sigue siendo responsabilidad del llamador. RequestFileDemo valida archivos desde consola sin arrancar una simulación.

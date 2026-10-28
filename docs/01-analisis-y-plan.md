@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–6, T41 y T42 cerradas. T42 validada por David con 458 pruebas Maven y commit `ae5a1bf`. T43 documentada y comprobada localmente; pendiente de revisión e incorporación. Fase 7 en curso.
+- **Estado:** fases 0–6, T41 y T42 cerradas; último commit confirmado `ae5a1bf`, 458 pruebas Maven. T43 entregada como contrato 1.0.0 para esta implementación, sin hash de incorporación comunicado. T44 implementada y comprobada localmente, pendiente de Maven e incorporación. Fase 7 en curso.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -509,3 +509,8 @@ Se agrega SessionLog con un consumidor en hilo independiente y TraceMailbox adic
 ## 23. Avance T43 — Formato del archivo de solicitudes
 
 Se define el [contrato 1.0.0](07-formato-archivo-solicitudes.md) de importación UTF-8 con HALL/CABIN, reglas precisas de BOM, espacios y comentarios, validación contra N/P, límites de lectura, orden de presentación y duplicados activos. Incluye ejemplos completos válidos e inválidos, atomicidad, identidad y diagnósticos de línea para T44. No se modifican fuentes Java, POM ni pruebas; se conserva la base de 458 pruebas validada en T42 sin atribuir una nueva ejecución Maven a T43. Ver [ficha T43](implementacion/T43-formato-archivo-solicitudes.md) y [comprobación documental](comprobaciones/T43-validacion-documental.md). La tarjeta queda pendiente de revisión e incorporación; parser en T44, integración RESET en T45 y archivos de muestra/pruebas de lectura en T46.
+
+
+## 24. Avance T44 — Parser y validación completa de lote
+
+Se agrega RequestFileReader con lectura acotada, UTF-8 estricto y diagnósticos del contrato [07](07-formato-archivo-solicitudes.md). PreparedRequestBatch conserva configuración, orden, repetidos, líneas y bytes en estructuras inmutables, sin UUID ni ejecución. Un archivo inválido devuelve diagnósticos sin lote parcial. Los 48 escenarios verifican sintaxis, dominio, límites exactos, errores, interrupción, propiedad de streams y lecturas concurrentes; además se contrastan los ejemplos de T43 con el lector Java real. Ver [implementación T44](implementacion/T44-parser-y-validacion-lote.md), [código completo](implementacion/T44-codigo-completo.md) y [validación local](comprobaciones/T44-validacion-local.md). Maven sigue pendiente en el equipo de David; se esperan 506 pruebas acumuladas sobre la base validada de 458. El controlador y la importación RESET no cambian: corresponden a T45.
