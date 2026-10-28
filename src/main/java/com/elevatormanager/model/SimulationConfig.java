@@ -1,5 +1,9 @@
 package com.elevatormanager.model;
 
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Map;
+
 /**
  * Configuración inmutable compartida por todos los trabajadores de una sesión.
  * Los tiempos se expresan en milisegundos y admiten conversión exacta a nanos.
@@ -28,6 +32,32 @@ public record SimulationConfig(
                 parseCount(floorCount, "Cantidad de pisos"),
                 parseLong(movementTimeMillis, "Tiempo de movimiento"),
                 parseLong(dwellTimeMillis, "Tiempo de parada"));
+    }
+
+    /** Campos estables para asociar cada diagnóstico a su control gráfico. */
+    public enum Field { ELEVATORS, FLOORS, MOVEMENT, DWELL }
+
+    /** Valida todos los campos con las mismas reglas que fromText, sin crear sesión. */
+    public static Map<Field, String> textErrors(String elevators, String floors,
+            String movement, String dwell) {
+        var errors = new EnumMap<Field, String>(Field.class);
+        collect(errors, Field.ELEVATORS, () -> parseCount(elevators, "Cantidad de elevadores"));
+        collect(errors, Field.FLOORS, () -> parseCount(floors, "Cantidad de pisos"));
+        collect(errors, Field.MOVEMENT, () -> validateTimeText(movement, "Tiempo de movimiento"));
+        collect(errors, Field.DWELL, () -> validateTimeText(dwell, "Tiempo de parada"));
+        return Collections.unmodifiableMap(errors);
+    }
+
+    private static void validateTimeText(String text, String field) {
+        requireTime(parseLong(text, field), field);
+    }
+
+    private static void collect(Map<Field, String> errors, Field field, Runnable check) {
+        try {
+            check.run();
+        } catch (IllegalArgumentException exception) {
+            errors.put(field, exception.getMessage());
+        }
     }
 
     private static void requirePositive(int value, String field) {
