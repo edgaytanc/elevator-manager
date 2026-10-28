@@ -97,3 +97,8 @@ java -cp .\target\classes com.elevatormanager.diagnostics.EventLoggingDemo
 ```
 
 Se esperan 24 específicas, 96 seleccionadas y 458 acumuladas. Confirmar los resultados reales y BUILD SUCCESS antes de cerrar T42. Commit sugerido: `T42: completar eventos obligatorios y errores`.
+
+
+## Confirmación posterior de David — 2026-10-28
+
+T42 cerrada en commit `ae5a1bf`: 24 pruebas específicas y 458 acumuladas, sin fallos, errores u omisiones, BUILD SUCCESS. EventLoggingDemo terminó correctamente y devolvió el prompt. Los avisos ERROR_LOGGING/ERROR_CONSUMIDOR_LOGGING de SessionLoggingTest corresponden a fallos inyectados que las pruebas verifican. Esta confirmación sustituye el estado pendiente Windows de la entrega original; no se recibió una ejecución separada de la selección de 96 pruebas.

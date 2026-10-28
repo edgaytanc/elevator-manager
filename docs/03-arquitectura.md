@@ -131,7 +131,7 @@ GUI/controlador validan ID/piso y envían destino al buzón de esa cabina; no ne
 
 ### 7.3 Importación
 
-El controlador captura estado/época RESET y encarga lectura. El lector valida todo a una lista de solicitudes sin ejecutar nada. Antes de sustituir el lote, el controlador vuelve a verificar RESET y misma época. Start entrega las entradas al flujo normal en orden; los hilos se ejecutan concurrentemente y el orden de finalización no está garantizado por el orden del archivo.
+El controlador captura estado/época RESET y encarga lectura. El lector valida todo a una lista de solicitudes sin ejecutar nada. Antes de sustituir el lote, el controlador vuelve a verificar RESET y misma época. Start presenta las entradas al flujo de admisión del controlador en orden; los hilos se ejecutan concurrentemente y no se garantiza el mismo orden de aceptación física o finalización. El contrato completo y sus límites están en [07](07-formato-archivo-solicitudes.md).
 
 ### 7.4 Reset global
 
@@ -374,3 +374,8 @@ SessionLog consume en su propio hilo y escribe mediante LoggerFactory. Fecha UTC
 El cierre del controlador termina coordinador, manejador y cabinas antes de sellar y drenar TraceMailbox. El marcador FIFO asegura que los eventos finales precedan al cierre de handlers. Un recurso registrado posteriormente se libera antes del logging por el orden inverso de adquisición.
 
 LoggerFactory configura destinos independientes elevadorN.log y manejador.log, además de consola. Su ErrorManager conserva la primera incidencia y un contador total de reportes. SessionLog.failure y SimulationController.failure exponen la degradación durante la ejecución. El motor continúa mientras se registra la incidencia; no hay reintento automático ni promesa de recuperar registros perdidos. El cierre libera recursos pero completa excepcionalmente y no publica CLOSED exitoso si hubo fallos de logging. La interfaz mínima no crea todavía una sesión configurada ni muestra un panel de incidencias; esa composición gráfica pertenece a sus tarjetas futuras.
+
+
+## Contrato T43 — Preparación de lotes
+
+[07 — Formato de archivo](07-formato-archivo-solicitudes.md) es la referencia normativa para RequestFileReader y PreparedRequestBatch futuros. La lectura de T44 produce descriptores inmutables con línea física y orden; no inicia actores ni consume IDs de comando. La confirmación T45 revalida sesión, configuración, época y RESET, y asigna identidades nuevas al lote sustituido. El importador conserva repetidos; la deduplicación de solicitudes activas sigue siendo del dominio. El contrato documental no agrega todavía un lector ni métodos de importación al controlador.

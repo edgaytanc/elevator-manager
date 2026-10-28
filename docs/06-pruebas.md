@@ -177,3 +177,24 @@ No registrar un resultado esperado como observado. No inventar capturas o archiv
 | Versión | Fecha | Cambio |
 | --- | --- | --- |
 | 0.1.0 | 2026-10-19 | Plan de pruebas previo a implementación: 18 requisitos base, tres extras y 47 casos pendientes. |
+
+
+## Matriz documental T43 para T44–T46 — 2026-10-28
+
+Esta ampliación especifica pruebas futuras; no declara un parser implementado ni casos nuevos ejecutados. La referencia normativa es [07](07-formato-archivo-solicitudes.md).
+
+| Grupo futuro | Casos exigidos | Resultado |
+| --- | --- | --- |
+| Codificación | UTF-8 con/sin BOM; BOM duplicado o interior; secuencias malformadas. | Aceptar únicamente lo permitido, sin reparar bytes. |
+| Líneas | LF, CRLF, mezcla, sin salto final, CR aislado, numeración con comentarios/vacías. | Reglas de 07 y línea física exacta. |
+| Léxico | Espacios múltiples/exteriores; tabs en instrucción/comentario; NBSP, dígitos Unicode, minúsculas. | Separadores ASCII y tokens exactos; error explícito. |
+| Gramática | Aridad exacta, comentarios finales, controles/V1, números con signos/decimales, ceros iniciales. | Tres tokens; ceros iniciales válidos, sin corregir formatos inválidos. |
+| Dominio | Pisos/IDs cero o fuera del edificio; desbordamiento de int; sentidos imposibles; P = 1. | Reutilizar códigos del modelo cuando correspondan. |
+| Límites | 1 MiB y un byte más; 10,000/10,001 líneas; 4,096/4,097 puntos de código. | Aceptar el límite exacto si el resto es válido y rechazar el exceso sin truncar. |
+| Lote vacío | Cero bytes, BOM solo, espacios, comentarios, líneas vacías. | EMPTY_BATCH, sin reemplazar el anterior. |
+| Orden/duplicados | Mixtos, repetidos numéricamente iguales, sentido o cabina diferentes. | Conservar entradas y líneas; deduplicación solo de trabajo activo. |
+| Atomicidad | Error en primera/última línea, varios errores y lote anterior preparado. | Ninguna carga parcial; diagnósticos ordenados; conservar anterior. |
+| Integración T45 | RESET, Start/reset durante lectura, nueva sesión/configuración, Stop/Start posterior. | Doble comprobación y consumo único sin mover al importar. |
+| Lectura T46 | Cancelación, inexistencia, vacío y permisos. | Resultado documentado, causa de lectura preservada y aplicación utilizable. |
+
+El límite de longitud cuenta puntos de código: incluir comentarios con caracteres suplementarios para evitar confundirlos con unidades UTF-16. Probar ceros iniciales y valor numérico por separado de la longitud de línea. Los casos de límites requieren archivos construidos exactamente en bytes/líneas, no solo nombres de ejemplo.

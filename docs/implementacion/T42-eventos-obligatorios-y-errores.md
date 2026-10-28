@@ -3,7 +3,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 7 — Implementar logs y carga de solicitudes.
 - **Base:** T41 validada por David, commit `7cc0c03`, 16 pruebas específicas, 434 acumuladas y BUILD SUCCESS; LoggingDemo correcto.
-- **Estado:** implementación y comprobaciones locales completas; pendiente de Maven e incorporación en el equipo de David. T42 conserva su casilla abierta hasta esa confirmación.
+- **Estado:** cerrada. David confirmó 24 pruebas específicas, 458 acumuladas, BUILD SUCCESS, EventLoggingDemo terminado con retorno al prompt y commit `ae5a1bf`. Esta ficha conserva el contenido y comandos de la entrega original.
 
 ## Resultado
 

@@ -83,7 +83,7 @@ Cada cambio debe registrar motivo, documentos afectados y pruebas que deben actu
 | D19 | El manejador asigna todas las externas; el controlador envía internas a la cabina elegida. | La cabina recibe ambos tipos por su frontera de mensajes. El manejador mantiene seguimiento de externas hasta su servicio efectivo. |
 | D20 | Asignación por ETA de recogida; recorrido colectivo por sentido con frontera comprometida. | Se documentan reglas exactas en 04. ETA es una estimación sobre snapshots, no una promesa de óptimo global. |
 | D21 | Piso actual solicitado durante tránsito se agenda para regreso. | No atender desde una cabina que ya dejó físicamente ese piso. Cabina inmóvil en el piso puede iniciar servicio sin moverse. |
-| D22 | Importación UTF-8 de líneas `HALL piso direccion` y `CABIN id piso`. | Sin tiempos programados ni simulación automática de pasajeros; detalle sintáctico en 05. |
+| D22 | Importación UTF-8 de líneas `HALL piso direccion` y `CABIN id piso`. | Sin tiempos programados ni simulación automática de pasajeros; contrato de archivo 1.0.0 en [07](07-formato-archivo-solicitudes.md), separado de los mensajes V1 de 05. |
 | D23 | Validar todo el archivo antes de confirmar el lote. | Un error o cancelación conserva el lote anterior. Otro archivo válido lo sustituye, no lo acumula. |
 | D24 | No reasignar llamadas aceptadas por una cabina en operación normal. | Reduce carreras y dobles recogidas. Un rechazo antes de aceptación permite recalcular; fallo de trabajador deja solicitud en error visible, sin afirmar atención. |
 
@@ -114,5 +114,11 @@ No son autorizaciones pendientes ni se requiere una aprobación nueva para ejecu
 | Versión | Fecha | Cambio |
 | --- | --- | --- |
 | 0.1.0 | 2026-10-19 | Propuesta inicial de 32 decisiones y semántica de controles. |
+
+## 9. Precisión T43 — 2026-10-28
+
+D22–D23 se concretan en [07 — Formato de archivo](07-formato-archivo-solicitudes.md). Se mantienen UTF-8, HALL/CABIN, comentarios de línea completa, sustitución atómica y ausencia de calendarización. Se permiten ceros iniciales y un único BOM al comienzo; tabs y comentarios al final de una instrucción siguen prohibidos. Los límites son 1 MiB, 10,000 líneas físicas y 4,096 puntos de código por línea.
+
+D18 continúa aplicándose a solicitudes activas: el importador conserva todas las líneas válidas y su orden; no elimina repetidos. El orden es de presentación al controlador, no de servicio concurrente. T44 implementará este contrato; T43 es documental.
 
 **Siguiente lectura:** [03 — Arquitectura](03-arquitectura.md).

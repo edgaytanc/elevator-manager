@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–6 y T41 cerradas. T41 validada por David con 434 pruebas Maven y commit `7cc0c03`. T42 implementada y comprobada localmente; pendiente de Maven e incorporación. Fase 7 en curso.
+- **Estado:** fases 0–6, T41 y T42 cerradas. T42 validada por David con 458 pruebas Maven y commit `ae5a1bf`. T43 documentada y comprobada localmente; pendiente de revisión e incorporación. Fase 7 en curso.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -503,4 +503,9 @@ Base recibida: T40, commit `f39eb3a`; fases 0–6 cerradas. Se agregan LoggerFac
 
 ## 22. Avance T42 — Eventos obligatorios y errores
 
-Se agrega SessionLog con un consumidor en hilo independiente y TraceMailbox adicional, sin consumir canales existentes ni escribir bajo locks de los actores. Registra todos los ExecutionEvent por cabina y las decisiones, cambios de seguimiento, reset y fallos del manejador en manejador.log. Se conservan secuencia, época, sesión, comando, solicitud y causa. ErrorManager captura incidencias de handlers, incluidas las ocultadas por PrintStream; se conserva la primera causa, se cuentan reportes y se avisa por stderr. El cierre drena después de terminar los actores y propaga degradación sin confirmar CLOSED exitoso. Ver [implementación T42](implementacion/T42-eventos-obligatorios-y-errores.md), [código completo](implementacion/T42-codigo-completo.md) y [validación local](comprobaciones/T42-validacion-local.md). T42 queda pendiente de Maven e incorporación; se esperan 458 pruebas acumuladas sobre T41.
+Se agrega SessionLog con un consumidor en hilo independiente y TraceMailbox adicional, sin consumir canales existentes ni escribir bajo locks de los actores. Registra todos los ExecutionEvent por cabina y las decisiones, cambios de seguimiento, reset y fallos del manejador en manejador.log. Se conservan secuencia, época, sesión, comando, solicitud y causa. ErrorManager captura incidencias de handlers, incluidas las ocultadas por PrintStream; se conserva la primera causa, se cuentan reportes y se avisa por stderr. El cierre drena después de terminar los actores y propaga degradación sin confirmar CLOSED exitoso. Ver [implementación T42](implementacion/T42-eventos-obligatorios-y-errores.md), [código completo](implementacion/T42-codigo-completo.md) y [validación local](comprobaciones/T42-validacion-local.md). David confirmó 24 pruebas específicas, 458 acumuladas, BUILD SUCCESS, EventLoggingDemo con retorno al prompt y commit `ae5a1bf`; T42 queda cerrada. Los avisos de errores en esas pruebas fueron provocados y verificados intencionalmente.
+
+
+## 23. Avance T43 — Formato del archivo de solicitudes
+
+Se define el [contrato 1.0.0](07-formato-archivo-solicitudes.md) de importación UTF-8 con HALL/CABIN, reglas precisas de BOM, espacios y comentarios, validación contra N/P, límites de lectura, orden de presentación y duplicados activos. Incluye ejemplos completos válidos e inválidos, atomicidad, identidad y diagnósticos de línea para T44. No se modifican fuentes Java, POM ni pruebas; se conserva la base de 458 pruebas validada en T42 sin atribuir una nueva ejecución Maven a T43. Ver [ficha T43](implementacion/T43-formato-archivo-solicitudes.md) y [comprobación documental](comprobaciones/T43-validacion-documental.md). La tarjeta queda pendiente de revisión e incorporación; parser en T44, integración RESET en T45 y archivos de muestra/pruebas de lectura en T46.

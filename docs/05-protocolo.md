@@ -1,7 +1,7 @@
 # 05 — Protocolo textual y archivo de solicitudes
 
 - **Proyecto:** Elevator Manager.
-- **Versión:** 0.1.0; versión de mensajes V1.
+- **Versión:** 0.1.1; versión de mensajes V1 sin cambios. Contrato de archivo 1.0.0 en 07.
 - **Fecha:** 2026-10-19, Guatemala.
 - **Estado:** contrato propuesto; no existe emisor/receptor implementado todavía.
 - **Base:** [02 — Decisiones](02-decisiones.md), [03 — Arquitectura](03-arquitectura.md), [04 — Asignación](04-algoritmo-asignacion.md).
@@ -134,34 +134,18 @@ El trabajador queda en DWELLING hasta agotar el tiempo de parada; la solicitud y
 
 ## 7. Formato de archivo de solicitudes
 
-### 7.1 Gramática
+**Actualización T43, 2026-10-28:** el contrato normativo completo del archivo está en [07 — Formato del archivo de solicitudes](07-formato-archivo-solicitudes.md). Se separa de la gramática de mensajes V1 de las secciones anteriores; esta actualización no implementa el protocolo textual entre actores.
 
 ```text
-HALL <floor> <UP|DOWN>
-CABIN <elevatorId> <floor>
+HALL <piso> <UP|DOWN>
+CABIN <idElevador> <piso>
 ```
 
-UTF-8, opcional BOM únicamente al inicio del archivo, LF/CRLF, espacios exteriores permitidos y uno o más espacios ASCII entre tokens. Líneas vacías y líneas cuyo primer carácter no blanco sea `#` se ignoran; comentarios al final de una instrucción no se admiten. No se admiten tabs ni comandos de control en el archivo. Los enteros y sus límites siguen las reglas anteriores.
+Se mantienen UTF-8, BOM opcional solo al inicio, LF/CRLF, espacios ASCII, comentarios de línea completa con #, ausencia de tabs y prohibición de comentarios al final de instrucciones. 07 precisa los límites, ceros iniciales, diagnósticos, números de línea, identidad, estados y ejemplos completos.
 
-El importador crea IDs de solicitudes cuando confirma el lote. Los comandos de transporte se crean al enviarlas tras Start. Orden de líneas conserva orden de admisión; no asegura orden de recogida con ejecución paralela.
+Se valida el archivo entero antes de sustituir el lote; un error, cancelación o cambio del contexto de importación conserva el anterior. Solo se confirma en RESET y misma sesión/configuración/época. Importar no mueve cabinas. Start presenta las entradas una sola vez en orden de archivo; ese orden no garantiza aceptación ni servicio físico en ese mismo orden.
 
-### 7.2 Ejemplo válido
-
-Para N = 2, P = 8:
-
-```text
-# Lote de demostración; no empieza a moverse al importar.
-HALL 3 UP
-HALL 7 DOWN
-CABIN 1 8
-CABIN 2 4
-```
-
-### 7.3 Validación y atomicidad
-
-Verificar codificación, aridad, tokens, pisos 1..P, ID 1..N y sentido posible. Un archivo sin instrucciones válidas se rechaza como lote vacío, conservando el anterior. Una línea inválida rechaza todo el lote e informa número de línea, causa y ejemplo de formato. No truncar silenciosamente.
-
-Solo se confirma en RESET y misma época de inicio de lectura. Cancelar selector, error I/O o cambio de estado no cambia el lote preparado. Una nueva importación válida sustituye el lote anterior. Al iniciar, las llamadas repetidas activas se unifican según D18.
+El importador conserva líneas repetidas. La unificación de equivalentes activos sigue D18; no se promete una única parada para dos líneas iguales bajo cualquier planificación concurrente. Los UUID y la época se asignan al confirmar el lote; los comandos se crean al enviarlos por el flujo normal. El archivo no contiene IDs, épocas, controles ni horarios.
 
 ## 8. Seguridad operativa y pruebas
 
@@ -174,5 +158,6 @@ Pruebas previstas: round-trip por cada comando, aridad, valores fuera de rango, 
 | Versión | Fecha | Cambio |
 | --- | --- | --- |
 | 0.1.0 | 2026-10-19 | Gramática V1, resultados, control de épocas y formato transaccional de archivos. |
+| 0.1.1 | 2026-10-28 | T43: sección 7 delega el contrato de archivo completo a 07; mensajes V1 sin cambios. |
 
 **Siguiente lectura:** [06 — Plan de pruebas](06-pruebas.md).
