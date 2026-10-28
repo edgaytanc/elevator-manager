@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 6 — Implementar ciclo de vida y reset.
 - **Base confirmada:** T38, commit `f4b654c`; 33 pruebas específicas, 158 seleccionadas y 362 acumuladas sin fallos, errores u omisiones; BUILD SUCCESS y árbol limpio confirmados por David.
-- **Estado:** implementación y escenarios locales satisfactorios; pendiente de validación Maven, comprobación visual e incorporación en el equipo de David.
+- **Estado:** Maven e incorporación confirmados por David: 32 pruebas específicas, 164 seleccionadas y 394 acumuladas sin fallos, errores u omisiones, BUILD SUCCESS y commit `74d467d`, con árbol limpio. La comprobación visual de Cerrar/X sigue pendiente de confirmación.
 
 ## 1. Cierre implementado
 
@@ -144,3 +144,7 @@ git status --short
 ```
 
 **Siguiente tarea:** T40 — Probar carreras del ciclo de vida. La fase 6 permanece abierta hasta completar esa tarea.
+
+## Confirmación posterior a la entrega
+
+El 2026-10-28 David compartió la validación Maven completa y el commit `74d467d`, con git diff --check, git diff --cached --check y git status --short limpios. No se recibió aún confirmación de la revisión manual de Cerrar y X; las instrucciones históricas anteriores no representan una comprobación visual realizada. T40 agrega las carreras de integración del ciclo de vida.

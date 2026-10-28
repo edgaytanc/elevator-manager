@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–5 y T35–T38 cerradas; T39 implementada y comprobada localmente, pendiente de Maven y comprobación visual del usuario.
+- **Estado:** fases 0–5 y T35–T38 cerradas; T39 con Maven y commit `74d467d` confirmados, pendiente de comprobación visual; T40 implementada y comprobada localmente, pendiente de Maven e incorporación. Fase 6 aún abierta.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -247,8 +247,8 @@ elevator-manager/
 - [x] **T36 — Implementar Stop y continuación con Start.** Etiqueta: BASE. Detener despacho, coordinar fronteras seguras de movimiento y preservar pendientes. **Aceptación:** STOPPING termina en STOPPED; Start continúa sin perder o volver a atender solicitudes ya completadas.
 - [x] **T37 — Implementar reset prioritario por cabina.** Etiqueta: BASE. Vaciar agenda y comandos antiguos, resolver posición en tránsito y volver al piso 1 respetando movimiento. **Aceptación:** no se teletransporta ni atiende trabajo cancelado y se restablece dirección arriba.
 - [x] **T38 — Coordinar reset global e invalidación de mensajes.** Etiqueta: BASE. Vaciar pendientes del manejador y esperar confirmación de todas las cabinas; usar época/generación o mecanismo equivalente. **Aceptación:** ningún mensaje en vuelo de la ejecución anterior reaparece y RESET solo se alcanza al terminar todos los retornos.
-- [ ] **T39 — Implementar cierre ordenado.** Etiqueta: BASE. Finalizar trabajadores, despertar esperas, cerrar handlers y liberar recursos sin bloquear el EDT. **Aceptación:** cerrar con trabajo pendiente no deja hilos vivos ni archivos bloqueados por la aplicación.
-- [ ] **T40 — Probar carreras del ciclo de vida.** Etiqueta: CALIDAD. Cubrir reset en movimiento y parada, Stop repetido, reset desde detenido y cierre durante reset. **Aceptación:** termina dentro de límites razonables sin interbloqueos ni eventos antiguos aplicados al estado nuevo.
+- [x] **T39 — Implementar cierre ordenado.** Etiqueta: BASE. Finalizar trabajadores, despertar esperas, cerrar handlers y liberar recursos sin bloquear el EDT. **Aceptación:** cerrar con trabajo pendiente no deja hilos vivos ni archivos bloqueados por la aplicación.
+- [x] **T40 — Probar carreras del ciclo de vida.** Etiqueta: CALIDAD. Cubrir reset en movimiento y parada, Stop repetido, reset desde detenido y cierre durante reset. **Aceptación:** termina dentro de límites razonables sin interbloqueos ni eventos antiguos aplicados al estado nuevo.
 
 ### Fase 7 — Implementar logs y carga de solicitudes
 
@@ -489,4 +489,8 @@ Se implementa la barrera de limpieza del manejador y retorno de las N cabinas a 
 
 ## 19. Avance de T39 — Cierre ordenado
 
-Se implementa cierre automático con confirmación, espera fuera del EDT, propiedad y liberación de recursos, adaptación de handlers y un único flujo de botón/X que dispone la ventana tras confirmación. Ver [implementación T39](implementacion/T39-cierre-ordenado.md), [código completo](implementacion/T39-codigo-completo.md) y [validación local](comprobaciones/T39-validacion-local.md). La casilla T39 queda pendiente de Maven y comprobación visual del usuario. T40 continúa abierta; la fase 6 no está cerrada.
+Se implementa cierre automático con confirmación, espera fuera del EDT, propiedad y liberación de recursos, adaptación de handlers y un único flujo de botón/X que dispone la ventana tras confirmación. Ver [implementación T39](implementacion/T39-cierre-ordenado.md), [código completo](implementacion/T39-codigo-completo.md) y [validación local](comprobaciones/T39-validacion-local.md). David confirmó Maven: 32 específicas, 164 seleccionadas y 394 acumuladas, BUILD SUCCESS, commit `74d467d` y árbol limpio. La casilla T39 solo queda pendiente de confirmación visual de Cerrar/X. La fase 6 no está cerrada.
+
+## 20. Avance T40 — Carreras del ciclo de vida
+
+Se agregan 24 escenarios con actores reales, productores simultáneos, barreras con plazos y entrega diferida al EDT. Cubren reset en movimiento/parada, Stop repetido, reset desde detenido, cierre durante reset, invalidación de mensajes y conservación/terminación de identidades Thread. No cambian las clases de producción. Ver [implementación T40](implementacion/T40-carreras-ciclo-de-vida.md), [código completo](implementacion/T40-codigo-completo.md) y [validación local](comprobaciones/T40-validacion-local.md). La regresión independiente cuenta 373 escenarios en 20 grupos y T40 se repite cinco veces en su versión final. Las 418 pruebas Maven acumuladas son una expectativa, no una ejecución local. T40 queda pendiente de Maven e incorporación; la fase 6 también conserva pendiente la comprobación visual de T39.

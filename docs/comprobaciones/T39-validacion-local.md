@@ -71,3 +71,7 @@ Maven no está instalado aquí. No se ejecutó mvn clean verify ni se declara ej
 No hay sesión gráfica ni Xvfb en el entorno local. MainWindow se compiló; su manejador se probó sin JFrame con EDT real y un controlador real, pero no se presenta como realizada una comprobación visual de botón/X. David debe ejecutar el JAR dos veces y comprobar retorno al prompt primero con Cerrar y después con la X.
 
 La entrada mínima actual no crea todavía una sesión; la configuración de fase 9 conectará la ventana a su controlador. Las pruebas automáticas de cierre del motor y handlers sí utilizan actores y recursos reales. T39 queda pendiente de Maven y comprobación visual; T40 mantiene abierta la fase 6.
+
+## 5. Validación posterior en el equipo de David
+
+Confirmada el 2026-10-28: OrderlyShutdownTest ejecutó 32 pruebas; el grupo seleccionado, 164; mvn clean verify, 394. Todas terminaron sin fallos, errores ni omisiones, con BUILD SUCCESS. Commit confirmado: `74d467d`; comprobaciones de espacios satisfactorias y árbol limpio. Esto sustituye la pendencia de Maven del apartado anterior. La revisión visual de botón Cerrar/X continúa pendiente de confirmación; no se da por ejecutada.
