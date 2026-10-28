@@ -1,5 +1,13 @@
 package com.elevatormanager.simulation;
 
+import com.elevatormanager.io.BatchDiagnostic;
+import com.elevatormanager.io.BatchReadResult;
+import com.elevatormanager.io.RequestFileReader;
+import java.nio.file.Path;
+import java.io.IOException;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import com.elevatormanager.logging.SessionLog;
 import com.elevatormanager.logging.TraceMailbox;
 import com.elevatormanager.dispatch.HallCallSnapshot;
@@ -31,7 +39,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 
-/** T39: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
+/** T45: sesión con controles serializados e importación validada fuera del EDT. */
 public final class SimulationController implements AutoCloseable {
     public enum Outcome { APPLIED, UNCHANGED, ENQUEUED, REJECTED }
 
@@ -39,6 +47,31 @@ public final class SimulationController implements AutoCloseable {
     public record Result(Outcome outcome, SimulationState state, String detail,
             Optional<Command.Destination> command, long epoch) { }
 
+    @FunctionalInterface interface BatchLoader {
+        BatchReadResult read(Path path, SimulationConfig config) throws Exception;
+    }
+    private final UUID sessionId = UUID.randomUUID();
+    private final BatchLoader batchLoader;
+    private final AtomicReference<Thread> importThread = new AtomicReference<>();
+    private final ThreadPoolExecutor importExecutor = new ThreadPoolExecutor(1, 1, 0L,
+            TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1), task -> {
+                var thread = new Thread(task, "simulation-import-" + sessionId);
+                importThread.set(thread);
+                return thread;
+            });
+    private static final class PendingImport {
+        final long generation;
+        final long epoch;
+        final CompletableFuture<BatchImportResult> completion;
+        Future<?> task;
+        PendingImport(long generation, long epoch, CompletableFuture<BatchImportResult> completion) {
+            this.generation = generation; this.epoch = epoch; this.completion = completion;
+        }
+    }
+    private volatile long importGeneration;
+    private PendingImport pendingImport; // Solo lo modifica el coordinador.
+    private volatile Optional<ImportedRequestBatch> preparedBatch = Optional.empty();
+    private volatile Optional<BatchDispatchReport> lastBatchDispatch = Optional.empty();
     private final Optional<SessionLog> sessionLog;
     private final SimulationConfig config;
     private volatile long epoch;
@@ -64,15 +97,22 @@ public final class SimulationController implements AutoCloseable {
     private boolean workersStarted;
 
     public SimulationController(SimulationConfig config, long epoch) {
-        this(config, epoch, Optional.empty());
+        this(config, epoch, Optional.empty(), new RequestFileReader()::read);
     }
 
     /** Transfiere el logging al controlador si la construcción termina correctamente. */
     public SimulationController(SimulationConfig config, long epoch, SessionLog sessionLog) {
-        this(config, epoch, Optional.of(Objects.requireNonNull(sessionLog, "sessionLog")));
+        this(config, epoch, Optional.of(Objects.requireNonNull(sessionLog, "sessionLog")), new RequestFileReader()::read);
     }
 
-    private SimulationController(SimulationConfig config, long epoch, Optional<SessionLog> sessionLog) {
+    /** Punto de prueba del paquete; el lector de producción sigue siendo RequestFileReader. */
+    static SimulationController withBatchLoader(SimulationConfig config, long epoch, BatchLoader loader) {
+        return new SimulationController(config, epoch, Optional.empty(), loader);
+    }
+
+    private SimulationController(SimulationConfig config, long epoch, Optional<SessionLog> sessionLog,
+            BatchLoader batchLoader) {
+        this.batchLoader = Objects.requireNonNull(batchLoader, "batchLoader");
         this.sessionLog = sessionLog;
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
@@ -90,6 +130,9 @@ public final class SimulationController implements AutoCloseable {
 
     public SimulationConfig config() { return config; }
     public long epoch() { return epoch; }
+    public UUID sessionId() { return sessionId; }
+    public Optional<ImportedRequestBatch> preparedBatch() { return preparedBatch; }
+    public Optional<BatchDispatchReport> lastBatchDispatch() { return lastBatchDispatch; }
     public SimulationState state() { return state; }
     public Optional<Throwable> failure() {
         return failure != null ? Optional.of(failure) : sessionLog.flatMap(SessionLog::failure);
@@ -125,11 +168,14 @@ public final class SimulationController implements AutoCloseable {
             }
             if (state == SimulationState.STOPPED || (state == SimulationState.RESET && workersStarted)) {
                 try {
+                    boolean fromReset = state == SimulationState.RESET;
+                    if (fromReset) { invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente."); }
                     for (var elevator : elevators) {
                         if (!elevator.resume()) { throw new IllegalStateException("Cabina no reanudable."); }
                     }
                     if (!manager.resume()) { throw new IllegalStateException("Manejador no reanudable."); }
                     state = SimulationState.RUNNING;
+                    if (fromReset) { releasePreparedBatch(); }
                     return result(Outcome.APPLIED, "Continuación de trabajadores y pendientes existentes.");
                 } catch (RuntimeException | Error exception) {
                     failure = exception;
@@ -141,8 +187,10 @@ public final class SimulationController implements AutoCloseable {
                 return result(Outcome.REJECTED, "Start no está permitido en " + state);
             }
             try {
+                invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente.");
                 startWorkersOnce();
                 state = SimulationState.RUNNING;
+                releasePreparedBatch();
                 return result(Outcome.APPLIED, "Trabajadores iniciados una sola vez.");
             } catch (RuntimeException | Error exception) {
                 failure = exception;
@@ -209,6 +257,9 @@ public final class SimulationController implements AutoCloseable {
             var completion = new CompletableFuture<Result>();
             resetCompletion = completion;
             try {
+                invalidateImport(BatchImportResult.Outcome.REJECTED, "Reset invalidó la lectura pendiente.");
+                preparedBatch = Optional.empty();
+                lastBatchDispatch = Optional.empty();
                 startWorkersOnce();
                 state = SimulationState.RESETTING;
                 epoch = targetEpoch;
@@ -291,30 +342,180 @@ public final class SimulationController implements AutoCloseable {
     /** Valida y enruta usando Request y su validación polimórfica. */
     public CompletableFuture<Result> submit(Request request) {
         Objects.requireNonNull(request, "request");
-        return schedule(() -> {
-            if (!state.acceptsManualRequests()) {
-                return result(Outcome.REJECTED, "Las solicitudes requieren RUNNING: " + state);
+        return schedule(() -> submitNow(request));
+    }
+
+    private Result submitNow(Request request) {
+        if (closeRequested.get()) { return result(Outcome.REJECTED, "Cierre solicitado; solicitud no enviada."); }
+        if (!state.acceptsManualRequests()) {
+            return result(Outcome.REJECTED, "Las solicitudes requieren RUNNING: " + state);
+        }
+        if (request.getEpoch() != epoch) {
+            return result(Outcome.REJECTED, "La solicitud pertenece a otra época.");
+        }
+        var validation = request.validateAgainst(config);
+        if (!validation.isValid()) {
+            return result(Outcome.REJECTED, validation.errors().toString());
+        }
+        if (request instanceof HallRequest hall) {
+            return result(manager.submit(hall) ? Outcome.ENQUEUED : Outcome.REJECTED,
+                    "Envío al manejador; consultar seguimiento de llamadas.");
+        }
+        if (request instanceof CabinRequest cabin) {
+            var command = new Command.Destination(nextCommandId(), cabin.getElevatorId(), cabin);
+            boolean sent = elevators.get(cabin.getElevatorId() - 1).submit(command);
+            return new Result(sent ? Outcome.ENQUEUED : Outcome.REJECTED, state,
+                    "Envío a cabina; la aceptación y el servicio se notifican por eventos.",
+                    sent ? Optional.of(command) : Optional.empty(), epoch);
+        }
+        return result(Outcome.REJECTED, "Tipo de solicitud no soportado.");
+    }
+
+
+    /** Apto para EDT: solo agenda captura de contexto; toda lectura se realiza en el ejecutor I/O. */
+    public CompletableFuture<BatchImportResult> importRequests(Path path) {
+        Objects.requireNonNull(path, "path");
+        var completion = new CompletableFuture<BatchImportResult>();
+        executeImportAction(() -> beginImport(path, completion), completion);
+        return completion.copy();
+    }
+
+    /** Cancelación explícita de la lectura vigente; conserva el lote previamente confirmado. */
+    public CompletableFuture<BatchImportResult> cancelImport() {
+        var completion = new CompletableFuture<BatchImportResult>();
+        executeImportAction(() -> {
+            invalidateImport(BatchImportResult.Outcome.CANCELLED, "Lectura cancelada explícitamente.");
+            completion.complete(importResult(BatchImportResult.Outcome.CANCELLED, importGeneration,
+                    "Cancelación procesada; lote confirmado conservado.", Optional.empty(), List.of()));
+        }, completion);
+        return completion.copy();
+    }
+
+    /** Revalidar también al aplicar una respuesta diferida en la interfaz. */
+    public boolean isCurrent(BatchImportResult response) {
+        Objects.requireNonNull(response, "response");
+        return sessionId.equals(response.sessionId()) && response.generation() == importGeneration
+                && response.epoch() == epoch && response.state() == state && !closeRequested.get();
+    }
+
+    private void executeImportAction(Runnable action, CompletableFuture<BatchImportResult> completion) {
+        try {
+            coordinator.execute(() -> {
+                if (closeRequested.get()) {
+                    completion.complete(importRejected("Cierre solicitado; importación descartada."));
+                    return;
+                }
+                try { action.run(); }
+                catch (RuntimeException | Error error) { completion.completeExceptionally(error); }
+            });
+        } catch (RejectedExecutionException error) {
+            completion.complete(importRejected("La sesión está cerrándose o cerrada."));
+        }
+    }
+
+    private void beginImport(Path path, CompletableFuture<BatchImportResult> completion) {
+        if (!state.allowsRequestImport()) {
+            completion.complete(importRejected("La importación requiere RESET: " + state));
+            return;
+        }
+        invalidateImport(BatchImportResult.Outcome.SUPERSEDED, "Sustituida por una lectura más reciente.");
+        var pending = new PendingImport(importGeneration, epoch, completion);
+        pendingImport = pending;
+        try {
+            pending.task = importExecutor.submit(() -> {
+                BatchReadResult parsed;
+                try { parsed = Objects.requireNonNull(batchLoader.read(path, config), "Resultado nulo del lector."); }
+                catch (Throwable error) {
+                    if (error instanceof InterruptedException) { Thread.currentThread().interrupt(); }
+                    Exception cause = error instanceof Exception exception ? exception : new IOException("Fallo del lector.", error);
+                    parsed = BatchReadResult.invalid(List.of(new BatchDiagnostic(BatchDiagnostic.Code.READ_ERROR,
+                            java.util.OptionalInt.empty(), "No se pudo completar la lectura del lote.",
+                            "Archivo legible y lector disponible.", Optional.of(cause))));
+                }
+                BatchReadResult result = parsed;
+                try { coordinator.execute(() -> completeImport(pending, result)); }
+                catch (RejectedExecutionException error) {
+                    // beginClose ya resolvió la operación; no se confirma nada desde el hilo I/O.
+                    pending.completion.complete(importRejected("Cierre antes de confirmar la lectura."));
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            pendingImport = null;
+            completion.complete(importRejected("Ejecutor de lectura no disponible; lote anterior conservado."));
+        }
+    }
+
+    /** Único punto de confirmación; no se ejecuta I/O ni se admiten solicitudes aquí. */
+    private void completeImport(PendingImport pending, BatchReadResult parsed) {
+        if (pendingImport != pending || pending.generation != importGeneration) { return; }
+        pendingImport = null;
+        if (closeRequested.get() || state != SimulationState.RESET || epoch != pending.epoch) {
+            pending.completion.complete(importRejected("El contexto cambió durante la lectura; lote no aplicado."));
+            return;
+        }
+        if (!parsed.isValid()) {
+            pending.completion.complete(importResult(BatchImportResult.Outcome.INVALID, pending.generation,
+                    "Archivo rechazado; lote confirmado anterior conservado.", Optional.empty(), parsed.diagnostics()));
+            return;
+        }
+        if (!parsed.batch().orElseThrow().config().equals(config)) {
+            pending.completion.complete(importRejected("Configuración del lote incompatible con la sesión."));
+            return;
+        }
+        try {
+            var confirmed = ImportedRequestBatch.confirm(parsed.batch().orElseThrow(), epoch);
+            if (closeRequested.get()) {
+                pending.completion.complete(importRejected("Cierre solicitado antes de publicar el lote confirmado."));
+                return;
             }
-            if (request.getEpoch() != epoch) {
-                return result(Outcome.REJECTED, "La solicitud pertenece a otra época.");
+            preparedBatch = Optional.of(confirmed); // Sustitución completa tras construir y validar.
+            pending.completion.complete(importResult(BatchImportResult.Outcome.IMPORTED, pending.generation,
+                    "Lote confirmado en RESET; no se ejecuta hasta Start.", Optional.of(confirmed), List.of()));
+        } catch (RuntimeException | Error error) { pending.completion.completeExceptionally(error); }
+    }
+
+    /** Invalida antes de interrumpir; un lector tardío jamás puede recuperar su contexto. */
+    private void invalidateImport(BatchImportResult.Outcome outcome, String detail) {
+        importGeneration = Math.incrementExact(importGeneration);
+        PendingImport old = pendingImport;
+        pendingImport = null;
+        if (old != null) {
+            old.completion.complete(importResult(outcome, old.generation, detail, Optional.empty(), List.of()));
+            if (old.task != null) { old.task.cancel(true); }
+        }
+        importExecutor.purge();
+    }
+
+    /** Solo Start efectivo desde RESET entra aquí, antes de otras admisiones del coordinador. */
+    private void releasePreparedBatch() {
+        Optional<ImportedRequestBatch> pending = preparedBatch;
+        preparedBatch = Optional.empty(); // Consumido incluso si posteriormente falla algún envío.
+        if (pending.isEmpty()) { return; }
+        ImportedRequestBatch batch = pending.orElseThrow();
+        var entries = new java.util.ArrayList<BatchDispatchReport.Entry>();
+        try {
+            for (int i = 0; i < batch.requests().size(); i++) {
+                Request request = batch.requests().get(i);
+                entries.add(new BatchDispatchReport.Entry(batch.source().entries().get(i).lineNumber(),
+                        request.getId(), submitNow(request)));
             }
-            var validation = request.validateAgainst(config);
-            if (!validation.isValid()) {
-                return result(Outcome.REJECTED, validation.errors().toString());
+        } catch (RuntimeException | Error error) {
+            for (int i = entries.size(); i < batch.requests().size(); i++) {
+                entries.add(new BatchDispatchReport.Entry(batch.source().entries().get(i).lineNumber(),
+                        batch.requests().get(i).getId(), result(Outcome.REJECTED, "Envío interrumpido por fallo; no se reintentará el lote.")));
             }
-            if (request instanceof HallRequest hall) {
-                return result(manager.submit(hall) ? Outcome.ENQUEUED : Outcome.REJECTED,
-                        "Envío al manejador; consultar seguimiento de llamadas.");
-            }
-            if (request instanceof CabinRequest cabin) {
-                var command = new Command.Destination(nextCommandId(), cabin.getElevatorId(), cabin);
-                boolean sent = elevators.get(cabin.getElevatorId() - 1).submit(command);
-                return new Result(sent ? Outcome.ENQUEUED : Outcome.REJECTED, state,
-                        "Envío a cabina; la aceptación y el servicio se notifican por eventos.",
-                        sent ? Optional.of(command) : Optional.empty(), epoch);
-            }
-            return result(Outcome.REJECTED, "Tipo de solicitud no soportado.");
-        });
+            lastBatchDispatch = Optional.of(new BatchDispatchReport(batch, entries));
+            throw error;
+        }
+        lastBatchDispatch = Optional.of(new BatchDispatchReport(batch, entries));
+    }
+
+    private BatchImportResult importRejected(String detail) {
+        return importResult(BatchImportResult.Outcome.REJECTED, importGeneration, detail, Optional.empty(), List.of());
+    }
+    private BatchImportResult importResult(BatchImportResult.Outcome outcome, long generation,
+            String detail, Optional<ImportedRequestBatch> batch, List<BatchDiagnostic> diagnostics) {
+        return new BatchImportResult(outcome, state, epoch, sessionId, generation, detail, batch, diagnostics);
     }
 
     /** Consumidor de la época vigente. ZERO permite sondeo en EDT sin esperar. */
@@ -380,6 +581,9 @@ public final class SimulationController implements AutoCloseable {
         closeRequested.set(true);
         if (!shutdownStarted.compareAndSet(false, true)) { return; }
         state = SimulationState.CLOSING;
+        invalidateImport(BatchImportResult.Outcome.REJECTED, "Cierre invalidó la lectura pendiente.");
+        preparedBatch = Optional.empty();
+        importExecutor.shutdownNow();
         if (resetCompletion != null && !resetCompletion.isDone()) {
             resetCompletion.complete(result(Outcome.REJECTED, "Reset interrumpido por cierre."));
         }
@@ -417,6 +621,11 @@ public final class SimulationController implements AutoCloseable {
                     catch (InterruptedException exception) { interrupted = true; }
                 }
             }
+            boolean importsEnded = false;
+            while (!importsEnded) {
+                try { importsEnded = importExecutor.awaitTermination(1, TimeUnit.DAYS); }
+                catch (InterruptedException exception) { interrupted = true; }
+            }
             var errors = new java.util.ArrayList<Throwable>();
             // Orden inverso de adquisición; intentar todos aunque falle uno.
             for (int i = ownedResources.size() - 1; i >= 0; i--) {
@@ -444,7 +653,7 @@ public final class SimulationController implements AutoCloseable {
     public boolean awaitTermination(Duration timeout) throws InterruptedException {
         long budget = checkedNanos(timeout);
         if (budget > 0 && (Thread.currentThread() == coordinatorThread.get()
-                || Thread.currentThread() == shutdownThread)) {
+                || Thread.currentThread() == shutdownThread || Thread.currentThread() == importThread.get())) {
             throw new IllegalStateException("No esperar el cierre desde un hilo que debe terminarlo.");
         }
         if (!closeRequested.get()) { return false; }
@@ -453,7 +662,7 @@ public final class SimulationController implements AutoCloseable {
         catch (TimeoutException | ExecutionException exception) { return false; }
         long remaining = remaining(began, budget);
         if (remaining > 0) { TimeUnit.NANOSECONDS.timedJoin(shutdownThread, remaining); }
-        return state == SimulationState.CLOSED && coordinator.isTerminated()
+        return state == SimulationState.CLOSED && coordinator.isTerminated() && importExecutor.isTerminated()
                 && !shutdownThread.isAlive();
     }
 

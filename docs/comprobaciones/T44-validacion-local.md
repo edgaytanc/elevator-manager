@@ -90,3 +90,8 @@ mvn clean verify
 Se esperan 48 específicas, 72 seleccionadas y 506 acumuladas, sin fallos, errores u omisiones, con BUILD SUCCESS. Son expectativas sobre las 458 pruebas previamente confirmadas; registrar las cifras reales antes de cerrar T44.
 
 Los comandos del CLI y de incorporación están en [ficha T44](../implementacion/T44-parser-y-validacion-lote.md). Commit sugerido: `T44: implementar parser y validacion de lote`.
+
+
+## Confirmación posterior de David — 2026-10-28
+
+T44 cerrada en commit `9ae324d`: 48 pruebas específicas y 506 acumuladas, sin fallos, errores u omisiones; ambas ejecuciones finalizaron con BUILD SUCCESS. Esta evidencia sustituye el estado pendiente de Maven de la entrega original. No se recibió ejecución separada de la selección de 72 pruebas ni confirmación manual del diagnóstico T44.

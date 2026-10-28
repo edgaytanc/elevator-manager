@@ -388,3 +388,16 @@ RequestFileReader no guarda estado entre llamadas y no depende de Swing, del con
 RequestEntry.Hall y RequestEntry.Cabin son descriptores sellados e inmutables, sin identidades de ejecución. PreparedRequestBatch copia las entradas, comprueba configuración, orden estricto de líneas y metadatos, y conserva los repetidos funcionales. BatchReadResult contiene exclusivamente un lote válido o diagnósticos, nunca entradas parciales. Las incidencias conservan códigos, línea física cuando procede, causa y formato esperado sin volcar el archivo. No existe aquí un campo mutable de lote anterior que el lector pueda sobrescribir.
 
 Se comprueba interrupción antes y entre lecturas y durante el recorrido de líneas, conservando el flag y causa InterruptedIOException. No se garantiza interrumpir un read bloqueado de cualquier InputStream externo. La misma instancia puede atender lecturas independientes en paralelo; compartir simultáneamente un mismo stream mutable sigue siendo responsabilidad del llamador. RequestFileDemo valida archivos desde consola sin arrancar una simulación.
+
+
+## Integración T45 — Propiedad de la importación
+
+SimulationController posee un ThreadPoolExecutor I/O de un hilo creado de forma perezosa y una cola de capacidad uno. El coordinador captura el contexto, sustituye peticiones de lectura anteriores y confirma exclusivamente en RESET. El hilo I/O llama a RequestFileReader y devuelve su resultado al coordinador; no confirma, genera UUID, mueve cabinas ni realiza callbacks a la vista.
+
+La identidad de sesión pertenece a la instancia; configuración final, época y generación impiden aplicar respuestas de otra lectura o sesión. La construcción completa de ImportedRequestBatch precede a la sustitución de su referencia publicada. Su lista y las solicitudes de dominio son inmutables. Los futuros visibles son copias de la operación privada; su cancelación no invalida trabajo. cancelImport proporciona la operación explícita y conserva el lote ya confirmado.
+
+Start efectivo desde RESET invalida una lectura aún pendiente, consume el lote confirmado antes de enviarlo y llama secuencialmente a submitNow para cada solicitud. Las acciones manuales posteriores del coordinador no se intercalan en ese bucle; los actores y el generador de comandos del manejador sí trabajan en paralelo. BatchDispatchReport correlaciona líneas/UUID/resultados. No se reintenta automáticamente un lote consumido, incluso si algún envío falla o el cierre rechaza entradas restantes. Un fallo inesperado activa el cierre y no deshace servicios ya ocurridos.
+
+Reset invalida lectura, lote e informe anteriores; después del retorno puede confirmarse otro lote en la nueva época. Cerrar invalida lecturas, interrumpe y apaga el ejecutor I/O, finaliza actores y espera la terminación real del ejecutor antes de cerrar recursos y confirmar CLOSED. Una lectura externa que ignore interrupciones puede demorar el cierre; un timeout no equivale a liberación. No se publica CLOSED ni se olvida el hilo para aparentar éxito.
+
+RequestImportDemo compone la API, SessionLog y los actores desde consola. La GUI mínima conserva su composición previa; los controles/selector se conectarán en sus tarjetas de interfaz y ejemplos.

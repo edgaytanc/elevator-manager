@@ -3,7 +3,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 7 — Implementar logs y carga de solicitudes.
 - **Base:** contrato T43 1.0.0 entregado en el ZIP anterior; último commit confirmado por David `ae5a1bf` de T42, 458 pruebas Maven. No se ha comunicado un hash de incorporación de T43.
-- **Estado:** implementada y comprobada localmente; pendiente de Maven e incorporación en el equipo de David. No se cierra T44 todavía.
+- **Estado:** cerrada. David confirmó 48 pruebas específicas y 506 acumuladas, sin fallos, errores u omisiones, BUILD SUCCESS y commit `9ae324d`. Esta ficha conserva el contenido de la entrega original T44.
 
 ## Resultado y alcance
 

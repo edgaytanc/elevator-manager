@@ -205,3 +205,10 @@ El límite de longitud cuenta puntos de código: incluir comentarios con caracte
 RequestFileScenarios contiene 48 escenarios ejecutables y RequestFileTest los mismos 48 adaptadores JUnit. Se comprobaron localmente léxico, UTF-8, BOM, terminadores, límites exactos, descriptores, diagnóstico completo, ausencia de lote parcial, streams, interrupción y concurrencia; la matriz de dominio se contrasta con los modelos existentes. Se verifican también los cinco archivos válidos y las 26 entradas inválidas de 07 mediante el diagnóstico Java real. Evidencia y límites en [validación T44](comprobaciones/T44-validacion-local.md). Maven no está disponible localmente; se esperan 506 pruebas acumuladas al ejecutarlo en el equipo de David.
 
 Las carreras de importación/confirmación, sustitución de un lote en el controlador y consumo único al iniciar siguen en T45. La colección de archivos de muestra, cancelación de selector y pruebas específicas de permisos siguen en T46. Las comprobaciones de T44 no acreditan esos comportamientos todavía.
+
+
+## Avance T45 — Integración RESET, 2026-10-28
+
+RequestImportScenarios y RequestImportTest agregan 40 escenarios de preparación sin movimiento, confirmación, reemplazo, rechazo fuera de RESET, envío único, continuidad Stop/Start, épocas, cancelación, respuestas diferidas, lectura más reciente, cierre y recursos. Lectores de prueba retenidos con CountDownLatch fuerzan las carreras sin inferir estados por dormir. Se compara identidad de hilos y se mantiene vivo un lector que ignora interrupción para verificar que CLOSED espera su salida real.
+
+T44 ya tiene 48 pruebas específicas y 506 acumuladas confirmadas por David en `9ae324d`. T45 espera 546 acumuladas y mantiene pendiente su ejecución Maven. La regresión independiente y las muestras están en [validación T45](comprobaciones/T45-validacion-local.md). Los resultados de importación son de preparación, y los informes de Start solo de envío; el servicio se prueba por ExecutionEvent/canónicas y seguimiento del manejador.

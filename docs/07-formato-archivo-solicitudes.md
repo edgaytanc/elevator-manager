@@ -4,7 +4,7 @@
 - **Versión del contrato de archivo:** 1.0.0.
 - **Fecha:** 2026-10-28, Guatemala.
 - **Tarjeta:** T43; base T42 validada en `ae5a1bf`, 458 pruebas Maven satisfactorias.
-- **Estado:** contrato 1.0.0 sin cambios de reglas. Parser T44 implementado y comprobado localmente, pendiente de Maven; confirmación/importación operativa todavía en T45.
+- **Estado:** contrato 1.0.0 sin cambios de reglas. Parser T44 validado en `9ae324d`. Importación al controlador T45 implementada y comprobada localmente, pendiente de Maven; aún no hay selector gráfico de archivos.
 - **Referencias:** [decisiones D17–D23](02-decisiones.md), [arquitectura](03-arquitectura.md), [resumen previo en 05](05-protocolo.md#7-formato-de-archivo-de-solicitudes).
 
 ## 1. Alcance y autoridad
@@ -261,4 +261,13 @@ El error está en la línea física 4. Las dos instrucciones anteriores no se ca
 - T45: lectura fuera del EDT, doble comprobación de RESET/contexto, sustitución atómica, identidades y presentación del lote una vez al iniciar.
 - T46: archivos de ejemplo descargables y pruebas de cancelación, inexistencia, vacío y permisos, además de la matriz de bordes de este contrato.
 
-T43 definió este contrato sin modificar Java ni añadir tests. T44 implementa su lectura y validación; sus 48 escenarios y el contraste de estos ejemplos se documentan en la [validación T44](comprobaciones/T44-validacion-local.md). Esto todavía no demuestra una importación conectada al controlador: corresponde a T45.
+T43 definió este contrato sin modificar Java ni añadir tests. T44 implementa su lectura y validación; sus 48 escenarios y el contraste de estos ejemplos se documentan en la [validación T44](comprobaciones/T44-validacion-local.md). T45 conecta esa validación al controlador; la [ficha de integración](implementacion/T45-importacion-limitada-reset.md) documenta confirmación, envío único, cancelación y respuestas tardías. La ventana mínima todavía no incorpora un selector gráfico.
+
+
+## 12. Implementación T45 — Contexto y lecturas simultáneas
+
+La confirmación y materialización se realizan en el coordinador del controlador, después de validar el resultado del hilo I/O. La configuración es inmutable y pertenece a esa instancia; se comprueban igualdad de configuración, época, generación de lectura y RESET, además de la puerta de cierre. Los recibos llevan UUID de sesión para revalidar su aplicación diferida; no son una autorización para modificar el estado.
+
+Una lectura nueva invalida la anterior y deja una sola lectura pendiente en cola, conservando mientras tanto el lote ya confirmado. Start invalida la lectura en curso y utiliza el lote que ya estaba confirmado, si existe. Un resultado inválido o cancelación conserva ese lote; reset y cierre lo invalidan. Cancelar un futuro visible solo cancela ese observador; cancelImport es la cancelación explícita de la lectura activa. El cierre espera que el ejecutor termine realmente, incluso si un lector no atiende la interrupción de inmediato.
+
+Estas políticas concretan la integración; no cambian la gramática de archivos ni añaden tiempos, controles o campos nuevos al texto. Start presenta el lote en orden a la misma ruta usada por admisiones manuales y publica un informe de envío. No se garantiza orden de aceptación ni finalización entre actores, ni ejecución atómica de los servicios físicos.
