@@ -4,7 +4,7 @@
 - **Fecha:** 2026-10-27, Guatemala.
 - **Fase:** 6 — Implementar ciclo de vida y reset.
 - **Base confirmada:** T36, commit `1f9b0c0`; 21 pruebas específicas, 128 seleccionadas y 297 acumuladas sin fallos, errores u omisiones; BUILD SUCCESS y árbol limpio aportados por David.
-- **Estado:** implementación y escenarios locales satisfactorios; pendiente de validación Maven e incorporación en el equipo de David.
+- **Estado:** cerrada; Maven validado por David y commit `29538a6`.
 
 ## 1. Alcance de T37
 
@@ -144,3 +144,7 @@ git status --short
 ```
 
 **Siguiente tarea:** T38 — Coordinar reset global e invalidación de mensajes. La fase 6 permanece abierta.
+
+## 10. Cierre confirmado de T37
+
+El 2026-10-28 David confirmó 32 pruebas específicas, 160 seleccionadas y 329 acumuladas sin fallos, errores u omisiones; BUILD SUCCESS. Commit `29538a6`, con comprobaciones de diferencias sin advertencias. El estado pendiente de las instrucciones anteriores corresponde a la entrega inicial. La coordinación global se documenta en T38.

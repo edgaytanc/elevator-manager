@@ -70,3 +70,7 @@ Maven no está instalado aquí; no se ejecutó mvn clean verify ni la suite JUni
 - Construcción completa: 329 acumuladas esperadas sobre las 297 de T36.
 
 No hay una nueva ventana ni aceptación gráfica manual de reset. La coordinación de N cabinas y el manejador queda para T38; el cierre integrado y las carreras ampliadas permanecen en T39–T40. T37 queda pendiente de cierre Maven en el plan.
+
+## 6. Confirmación posterior en el equipo de David
+
+Se verificó el 2026-10-28 la salida adjunta: CabinResetTest, 32 pruebas específicas; grupo seleccionado, 160; construcción completa, 329. Todas sin fallos, errores u omisiones y BUILD SUCCESS. Se confirmó el commit `29538a6` y comprobaciones de diferencias sin advertencias. T37 queda cerrada; las limitaciones de Maven descritas arriba corresponden al entorno local inicial.

@@ -24,7 +24,7 @@ import java.util.function.LongSupplier;
 import javax.swing.SwingUtilities;
 
 /**
- * T36: actor de llamadas externas con barrera de despacho y continuación.
+ * T38: actor de llamadas externas con invalidación de época y barreras de control.
  * Consume una suscripción propia; mantiene intactos los canales anteriores.
  */
 public final class ManagerWorker implements AutoCloseable {
@@ -36,7 +36,7 @@ public final class ManagerWorker implements AutoCloseable {
             Optional<Command.Pickup> command, String detail, String processedBy) { }
 
     private final SimulationConfig config;
-    private final long epoch;
+    private volatile long epoch;
     private final List<ElevatorWorker> elevators;
     private final LongSupplier commandIds;
     private final ReentrantLock lock = new ReentrantLock();
@@ -44,8 +44,13 @@ public final class ManagerWorker implements AutoCloseable {
     private boolean stopRequested;
     private boolean stopped;
     private CompletableFuture<Void> stopConfirmation;
+    private record ResetTicket(long epoch, CompletableFuture<Long> response) { }
+    private record ResetOperation(long epoch, CompletableFuture<Long> completion) { }
+    private final ArrayDeque<ResetTicket> resetInbox = new ArrayDeque<>();
+    private ResetOperation lastReset;
+    private boolean resetHeld;
     private final ExecutionEventMailbox mailbox = new ExecutionEventMailbox();
-    private final HallRequestLedger ledger;
+    private HallRequestLedger ledger;
     private final BlockingQueue<HallCallSnapshot> updates = new LinkedBlockingQueue<>();
     private final AtomicReference<Map<UUID, HallCallSnapshot>> published = new AtomicReference<>(Map.of());
     private static final long RETRY_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
@@ -110,19 +115,88 @@ public final class ManagerWorker implements AutoCloseable {
         Objects.requireNonNull(request, "request");
         lock.lock();
         try {
-            if (lifecycle != Lifecycle.RUNNING) { return false; }
+            if (lifecycle != Lifecycle.RUNNING || resetHeld || !resetInbox.isEmpty()) { return false; }
             inbox.addLast(request);
             mailbox.wake();
             return true;
         } finally { lock.unlock(); }
     }
 
-    /** Confirma al salir del despacho en vuelo; conserva inbox, ledger y eventos. */
-    public CompletableFuture<Void> requestStop() {
+    /** Confirma adopción de época y limpieza; mantiene detenido el despacho hasta resume. */
+    public CompletableFuture<Long> requestReset(long newEpoch) {
         lock.lock();
         try {
             if (lifecycle != Lifecycle.RUNNING) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Manejador no disponible."));
+            }
+            var response = new CompletableFuture<Long>();
+            resetInbox.addLast(new ResetTicket(newEpoch, response));
+            controlChanged.signalAll();
+            mailbox.wake();
+            return response.copy();
+        } finally { lock.unlock(); }
+    }
+
+    public long epoch() { return epoch; }
+
+    /** Solo el actor reemplaza su registro. Completa futuros después de soltar el lock. */
+    private void processReset(ResetTicket ticket) {
+        if (lastReset != null && ticket.epoch() == lastReset.epoch()) {
+            lastReset.completion().whenComplete((value, error) -> {
+                if (error == null) { ticket.response().complete(value); }
+                else { ticket.response().completeExceptionally(error); }
+            });
+            return;
+        }
+        if (ticket.epoch() <= epoch) {
+            ticket.response().completeExceptionally(new IllegalArgumentException("Época de reset no creciente."));
+            return;
+        }
+        List<HallRequest> abandoned;
+        CompletableFuture<Void> replaced;
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) {
+                // El resultado se completa fuera de esta sección.
+                abandoned = null;
+                replaced = null;
+            } else {
+                abandoned = List.copyOf(inbox);
+                inbox.clear();
+                replaced = stopConfirmation;
+                resetHeld = true;
+                stopRequested = true;
+                stopped = true;
+                stopConfirmation = CompletableFuture.completedFuture(null);
+            }
+        } finally { lock.unlock(); }
+        if (abandoned == null) {
+            ticket.response().completeExceptionally(new IllegalStateException("Cierre interrumpió reset del manejador."));
+            return;
+        }
+        ledger.cancelForReset();
+        publish();
+        for (var request : abandoned) {
+            results.add(result(request, Outcome.CANCELLED, Optional.empty(), "Entrada invalidada por reset global."));
+        }
+        ledger = new HallRequestLedger(config, ticket.epoch());
+        epoch = ticket.epoch();
+        retryCursor = 0;
+        publish();
+        lastReset = new ResetOperation(epoch, new CompletableFuture<>());
+        if (replaced != null && !replaced.isDone()) {
+            replaced.completeExceptionally(new IllegalStateException("Stop del manejador sustituido por reset."));
+        }
+        lastReset.completion().complete(epoch);
+        ticket.response().complete(epoch);
+    }
+
+    /** Confirma al salir del despacho en vuelo; conserva inbox, ledger y eventos. */
+    public CompletableFuture<Void> requestStop() {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING || resetHeld || !resetInbox.isEmpty()) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Manejador no disponible para Stop."));
             }
             if (!stopRequested) {
                 stopRequested = true;
@@ -136,7 +210,9 @@ public final class ManagerWorker implements AutoCloseable {
     public boolean resume() {
         lock.lock();
         try {
-            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped) { return false; }
+            if (lifecycle != Lifecycle.RUNNING || !stopRequested || !stopped
+                    || !resetInbox.isEmpty()) { return false; }
+            resetHeld = false;
             stopRequested = false;
             stopped = false;
             controlChanged.signalAll();
@@ -147,22 +223,21 @@ public final class ManagerWorker implements AutoCloseable {
     /** Sin callbacks ni esperas externas bajo el lock local. */
     private boolean awaitDispatchPermission() throws InterruptedException {
         while (true) {
-            CompletableFuture<Void> ack;
+            CompletableFuture<Void> ack = null;
+            ResetTicket reset = null;
             lock.lockInterruptibly();
             try {
                 if (lifecycle != Lifecycle.RUNNING) { return false; }
-                if (!stopRequested) { return true; }
-                stopped = true;
-                ack = stopConfirmation;
+                if (!resetInbox.isEmpty()) { reset = resetInbox.removeFirst(); }
+                else if (!stopRequested) { return true; }
+                else { stopped = true; ack = stopConfirmation; }
             } finally { lock.unlock(); }
+            if (reset != null) { processReset(reset); continue; }
             ack.complete(null);
             lock.lockInterruptibly();
             try {
-                // Una continuación seguida inmediatamente de otro Stop es una
-                // barrera nueva, aunque el actor no alcanzara a despachar nada.
-                if (stopRequested && stopConfirmation == ack && lifecycle == Lifecycle.RUNNING) {
-                    controlChanged.await();
-                }
+                if (stopRequested && stopConfirmation == ack && resetInbox.isEmpty()
+                        && lifecycle == Lifecycle.RUNNING) { controlChanged.await(); }
             } finally { lock.unlock(); }
         }
     }
@@ -267,7 +342,7 @@ public final class ManagerWorker implements AutoCloseable {
                 // Si llega después de esta lectura, su wake permanece en la cola.
                 lock.lockInterruptibly();
                 try {
-                    if (stopRequested || lifecycle != Lifecycle.RUNNING) { continue; }
+                    if (stopRequested || !resetInbox.isEmpty() || lifecycle != Lifecycle.RUNNING) { continue; }
                 } finally { lock.unlock(); }
                 // Los eventos despiertan por cola; el temporizador solo reintenta recibidas.
                 var event = ledger.pending().isEmpty()
@@ -285,14 +360,19 @@ public final class ManagerWorker implements AutoCloseable {
                         "Fallo durante el procesamiento; revisar el historial publicado."));
             }
             ledger.close(); publish();
+            List<ResetTicket> abandonedResets;
             lock.lock();
             try {
+                abandonedResets = List.copyOf(resetInbox);
+                resetInbox.clear();
                 while (!inbox.isEmpty()) {
                     results.add(result(inbox.removeFirst(), Outcome.CANCELLED, Optional.empty(),
                             "Manejador cerrado antes de procesar la entrada."));
                 }
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
             } finally { lock.unlock(); }
+            var error = new IllegalStateException("Manejador terminó antes de adoptar reset.", failure);
+            for (var reset : abandonedResets) { reset.response().completeExceptionally(error); }
             if (stopConfirmation != null && !stopConfirmation.isDone()) {
                 stopConfirmation.completeExceptionally(new IllegalStateException("Manejador terminado antes de confirmar Stop.", failure));
             }

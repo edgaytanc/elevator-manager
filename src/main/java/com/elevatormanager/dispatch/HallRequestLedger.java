@@ -172,6 +172,17 @@ public final class HallRequestLedger {
         }
     }
 
+    /** Invalida seguimiento abierto por reset; no deshace servicios ya confirmados. */
+    public void cancelForReset() {
+        for (var entry : canonical.values()) {
+            if (entry.status != SERVED && entry.status != CANCELLED) {
+                entry.status = CANCELLED;
+                entry.detail = "Seguimiento invalidado por reset; conservar hechos históricos por época.";
+            }
+        }
+        active.clear();
+    }
+
     /** Un cierre del manejador no cancela físicamente comandos ya enviados a una cabina. */
     public void close() {
         for (var e : canonical.values()) {

@@ -25,16 +25,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 
-/** T36: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
+/** T38: propietario de una sesión; serializa controles y admisiones fuera del EDT. */
 public final class SimulationController implements AutoCloseable {
     public enum Outcome { APPLIED, UNCHANGED, ENQUEUED, REJECTED }
 
     /** ENQUEUED confirma envío, nunca admisión local ni servicio físico. */
     public record Result(Outcome outcome, SimulationState state, String detail,
-            Optional<Command.Destination> command) { }
+            Optional<Command.Destination> command, long epoch) { }
 
     private final SimulationConfig config;
-    private final long epoch;
+    private volatile long epoch;
     private final List<ElevatorWorker> elevators;
     private final ManagerWorker manager;
     private final ExecutionEventMailbox events = new ExecutionEventMailbox();
@@ -44,6 +44,8 @@ public final class SimulationController implements AutoCloseable {
     private volatile SimulationState state = SimulationState.RESET;
     private volatile Throwable failure;
     private CompletableFuture<Result> stopCompletion;
+    private CompletableFuture<Result> resetCompletion;
+    private boolean workersStarted;
 
     public SimulationController(SimulationConfig config, long epoch) {
         this.config = Objects.requireNonNull(config, "config");
@@ -65,7 +67,15 @@ public final class SimulationController implements AutoCloseable {
         return elevators.stream().map(ElevatorWorker::snapshot).toList();
     }
 
-    public Map<UUID, HallCallSnapshot> calls() { return manager.calls(); }
+    /** Vista de la época vigente, incluso mientras el manejador adopta el reset. */
+    public Map<UUID, HallCallSnapshot> calls() {
+        long currentEpoch = epoch;
+        var current = new java.util.HashMap<UUID, HallCallSnapshot>();
+        manager.calls().forEach((id, call) -> {
+            if (call.request().getEpoch() == currentEpoch) { current.put(id, call); }
+        });
+        return Map.copyOf(current);
+    }
 
     /** Observación de salud sin exponer los trabajadores ni sus canales de control. */
     public List<ElevatorWorker.Lifecycle> elevatorLifecycles() {
@@ -80,7 +90,7 @@ public final class SimulationController implements AutoCloseable {
             if (state == SimulationState.RUNNING) {
                 return result(Outcome.UNCHANGED, "La sesión ya está en ejecución.");
             }
-            if (state == SimulationState.STOPPED) {
+            if (state == SimulationState.STOPPED || (state == SimulationState.RESET && workersStarted)) {
                 try {
                     for (var elevator : elevators) {
                         if (!elevator.resume()) { throw new IllegalStateException("Cabina no reanudable."); }
@@ -98,10 +108,7 @@ public final class SimulationController implements AutoCloseable {
                 return result(Outcome.REJECTED, "Start no está permitido en " + state);
             }
             try {
-                for (var elevator : elevators) {
-                    if (!elevator.start()) { throw new IllegalStateException("Cabina ya iniciada."); }
-                }
-                if (!manager.start()) { throw new IllegalStateException("Manejador ya iniciado."); }
+                startWorkersOnce();
                 state = SimulationState.RUNNING;
                 return result(Outcome.APPLIED, "Trabajadores iniciados una sola vez.");
             } catch (RuntimeException | Error exception) {
@@ -146,6 +153,108 @@ public final class SimulationController implements AutoCloseable {
         });
     }
 
+    /** Una época por operación; RESET se confirma solo tras limpieza y N retornos. */
+    public CompletableFuture<Result> reset() {
+        return scheduleAsync(() -> {
+            if (state == SimulationState.RESETTING) { return resetCompletion; }
+            if (state != SimulationState.RESET && state != SimulationState.RUNNING
+                    && state != SimulationState.STOPPING && state != SimulationState.STOPPED) {
+                return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Reset no permitido en " + state));
+            }
+            final long targetEpoch;
+            final List<Command.Reset> commands;
+            try {
+                targetEpoch = Math.incrementExact(epoch);
+                var controls = new java.util.ArrayList<Command.Reset>();
+                for (int id = 1; id <= elevators.size(); id++) {
+                    controls.add(new Command.Reset(nextCommandId(), targetEpoch, id));
+                }
+                commands = List.copyOf(controls);
+            } catch (ArithmeticException error) {
+                return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Época o IDs agotados; cerrar la sesión."));
+            }
+            var completion = new CompletableFuture<Result>();
+            resetCompletion = completion;
+            try {
+                startWorkersOnce();
+                state = SimulationState.RESETTING;
+                epoch = targetEpoch;
+                if (stopCompletion != null && !stopCompletion.isDone()) {
+                    stopCompletion.complete(result(Outcome.REJECTED, "Stop sustituido por reset global."));
+                }
+                var managerAck = manager.requestReset(targetEpoch);
+                var cabinAcks = new java.util.ArrayList<CompletableFuture<ElevatorSnapshot>>();
+                for (int i = 0; i < elevators.size(); i++) {
+                    cabinAcks.add(elevators.get(i).requestReset(commands.get(i)));
+                }
+                var participants = new java.util.ArrayList<CompletableFuture<?>>();
+                participants.add(managerAck);
+                participants.addAll(cabinAcks);
+                // Un participante fallido dispara cierre; no espera a un viaje largo de otro.
+                for (var participant : participants) {
+                    participant.whenComplete((value, error) -> {
+                        if (error != null) {
+                            schedule(() -> finishReset(completion, targetEpoch, error, managerAck, cabinAcks));
+                        }
+                    });
+                }
+                CompletableFuture.allOf(participants.toArray(CompletableFuture[]::new))
+                        .whenComplete((ignored, error) -> schedule(() ->
+                                finishReset(completion, targetEpoch, error, managerAck, cabinAcks)));
+            } catch (RuntimeException | Error error) {
+                failure = error;
+                completion.completeExceptionally(error);
+                beginClose();
+            }
+            return completion;
+        });
+    }
+
+    /** Solo se llama en el coordinador. Las lecturas getNow nunca esperan. */
+    private Result finishReset(CompletableFuture<Result> completion, long targetEpoch, Throwable error,
+            CompletableFuture<Long> managerAck, List<CompletableFuture<ElevatorSnapshot>> cabinAcks) {
+        if (state != SimulationState.RESETTING || epoch != targetEpoch
+                || resetCompletion != completion || completion.isDone()) {
+            return result(Outcome.UNCHANGED, "Confirmación de reset fuera de vigencia.");
+        }
+        try {
+            if (error != null) { throw new IllegalStateException("Participante de reset fallido.", error); }
+            if (!Long.valueOf(targetEpoch).equals(managerAck.getNow(null)) || manager.epoch() != targetEpoch
+                    || manager.lifecycle() != ManagerWorker.Lifecycle.RUNNING || !manager.calls().isEmpty()) {
+                throw new IllegalStateException("El manejador no confirmó limpieza de la época vigente.");
+            }
+            if (cabinAcks.size() != elevators.size()) { throw new IllegalStateException("Barrera incompleta."); }
+            for (int i = 0; i < cabinAcks.size(); i++) {
+                var snapshot = cabinAcks.get(i).getNow(null);
+                if (snapshot == null || snapshot.id() != i + 1 || snapshot.epoch() != targetEpoch
+                        || snapshot.currentFloor() != 1 || snapshot.direction() != com.elevatormanager.model.Direction.UP
+                        || snapshot.phase() != com.elevatormanager.model.ElevatorPhase.IDLE
+                        || snapshot.mode() != ElevatorSnapshot.Mode.NORMAL || snapshot.nextFloor().isPresent()
+                        || snapshot.committedFloor().isPresent() || !snapshot.cabinRequests().isEmpty()
+                        || !snapshot.hallRequests().isEmpty()
+                        || elevators.get(i).lifecycle() != ElevatorWorker.Lifecycle.RUNNING) {
+                    throw new IllegalStateException("Cabina sin retorno físico confirmado en la época vigente.");
+                }
+            }
+            state = SimulationState.RESET;
+            completion.complete(result(Outcome.APPLIED, "Manejador limpio y todas las cabinas en 1/UP; esperando Start."));
+        } catch (RuntimeException | Error exception) {
+            failure = exception;
+            completion.completeExceptionally(exception);
+            beginClose();
+        }
+        return result(Outcome.UNCHANGED, "Confirmación de reset procesada.");
+    }
+
+    private void startWorkersOnce() {
+        if (workersStarted) { return; }
+        for (var elevator : elevators) {
+            if (!elevator.start()) { throw new IllegalStateException("Cabina ya iniciada."); }
+        }
+        if (!manager.start()) { throw new IllegalStateException("Manejador ya iniciado."); }
+        workersStarted = true;
+    }
+
     /** Valida y enruta usando Request y su validación polimórfica. */
     public CompletableFuture<Result> submit(Request request) {
         Objects.requireNonNull(request, "request");
@@ -169,16 +278,39 @@ public final class SimulationController implements AutoCloseable {
                 boolean sent = elevators.get(cabin.getElevatorId() - 1).submit(command);
                 return new Result(sent ? Outcome.ENQUEUED : Outcome.REJECTED, state,
                         "Envío a cabina; la aceptación y el servicio se notifican por eventos.",
-                        sent ? Optional.of(command) : Optional.empty());
+                        sent ? Optional.of(command) : Optional.empty(), epoch);
             }
             return result(Outcome.REJECTED, "Tipo de solicitud no soportado.");
         });
     }
 
-    /** Suscripción propia de la sesión; un consumidor lógico. ZERO permite sondeo en EDT. */
+    /** Consumidor de la época vigente. ZERO permite sondeo en EDT sin esperar. */
     public Optional<ExecutionEvent> awaitEvent(Duration timeout) throws InterruptedException {
-        long nanos = checkedNanos(timeout);
-        return events.await(Duration.ofNanos(nanos));
+        long budget = checkedNanos(timeout);
+        long began = System.nanoTime();
+        int discarded = 0;
+        while (true) {
+            var event = events.await(Duration.ofNanos(remaining(began, budget)));
+            if (event.isEmpty() || isCurrent(event.orElseThrow())) { return event; }
+            // No prolongar el plazo ni drenar un historial enorme en un sondeo EDT.
+            if ((budget > 0 && remaining(began, budget) == 0)
+                    || (budget == 0 && ++discarded == 256)) { return Optional.empty(); }
+        }
+    }
+
+    public boolean isCurrent(Result response) {
+        Objects.requireNonNull(response, "response");
+        long currentEpoch = epoch;
+        return response.epoch() == currentEpoch
+                && response.command().map(command -> command.epoch() == currentEpoch).orElse(true);
+    }
+
+    /** Revalidar también al aplicar un evento ya extraído antes de un reset concurrente. */
+    public boolean isCurrent(ExecutionEvent event) {
+        Objects.requireNonNull(event, "event");
+        long currentEpoch = epoch;
+        return event.epoch() == currentEpoch
+                && event.command().map(command -> command.epoch() == currentEpoch).orElse(true);
     }
 
     /** Liberación local mínima; no equivale a Stop ni al reset físico. No hace join. */
@@ -191,6 +323,9 @@ public final class SimulationController implements AutoCloseable {
 
     private void beginClose() {
         state = SimulationState.CLOSING;
+        if (resetCompletion != null && !resetCompletion.isDone()) {
+            resetCompletion.complete(result(Outcome.REJECTED, "Reset interrumpido por cierre."));
+        }
         if (stopCompletion != null && !stopCompletion.isDone()) {
             stopCompletion.complete(result(Outcome.REJECTED, "Stop interrumpido por cierre."));
         }
@@ -235,7 +370,7 @@ public final class SimulationController implements AutoCloseable {
     }
 
     private Result result(Outcome outcome, String detail) {
-        return new Result(outcome, state, detail, Optional.empty());
+        return new Result(outcome, state, detail, Optional.empty(), epoch);
     }
 
     private long nextCommandId() {
