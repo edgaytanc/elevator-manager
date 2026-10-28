@@ -1,5 +1,6 @@
 package com.elevatormanager.dispatch;
 
+import com.elevatormanager.logging.TraceMailbox;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
@@ -35,6 +36,7 @@ public final class ManagerWorker implements AutoCloseable {
     public record Result(HallRequest request, Outcome outcome,
             Optional<Command.Pickup> command, String detail, String processedBy) { }
 
+    private final TraceMailbox trace;
     private final SimulationConfig config;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
@@ -71,6 +73,12 @@ public final class ManagerWorker implements AutoCloseable {
      */
     public ManagerWorker(SimulationConfig config, long epoch,
             List<ElevatorWorker> elevators, LongSupplier commandIds) {
+        this(config, epoch, elevators, commandIds, TraceMailbox.disabled());
+    }
+
+    public ManagerWorker(SimulationConfig config, long epoch,
+            List<ElevatorWorker> elevators, LongSupplier commandIds, TraceMailbox trace) {
+        this.trace = Objects.requireNonNull(trace, "trace");
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
@@ -187,6 +195,7 @@ public final class ManagerWorker implements AutoCloseable {
         if (replaced != null && !replaced.isDone()) {
             replaced.completeExceptionally(new IllegalStateException("Stop del manejador sustituido por reset."));
         }
+        trace.managerState(epoch, "MANAGER_RESET", null);
         lastReset.completion().complete(epoch);
         ticket.response().complete(epoch);
     }
@@ -296,6 +305,7 @@ public final class ManagerWorker implements AutoCloseable {
         HallRequest inFlight = null;
         long lastRetry = System.nanoTime();
         try {
+            trace.managerState(epoch, "MANAGER_STARTED", null);
             while (lifecycle == Lifecycle.RUNNING) {
                 if (!awaitDispatchPermission()) { break; }
                 boolean hadEvents = false;
@@ -371,6 +381,7 @@ public final class ManagerWorker implements AutoCloseable {
                 }
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
             } finally { lock.unlock(); }
+            trace.managerState(epoch, failure == null ? "MANAGER_TERMINATED" : "MANAGER_FAILED", failure);
             var error = new IllegalStateException("Manejador terminó antes de adoptar reset.", failure);
             for (var reset : abandonedResets) { reset.response().completeExceptionally(error); }
             if (stopConfirmation != null && !stopConfirmation.isDone()) {
@@ -383,7 +394,9 @@ public final class ManagerWorker implements AutoCloseable {
         var next = ledger.snapshot();
         var previous = published.getAndSet(next);
         for (var entry : next.entrySet()) {
-            if (!entry.getValue().equals(previous.get(entry.getKey()))) { updates.add(entry.getValue()); }
+            if (!entry.getValue().equals(previous.get(entry.getKey()))) {
+                updates.add(entry.getValue()); trace.call(entry.getValue());
+            }
         }
     }
 
@@ -457,7 +470,9 @@ public final class ManagerWorker implements AutoCloseable {
 
     private Result result(HallRequest request, Outcome outcome,
             Optional<Command.Pickup> command, String detail) {
-        return new Result(request, outcome, command, detail, Thread.currentThread().getName());
+        var result = new Result(request, outcome, command, detail, Thread.currentThread().getName());
+        trace.decision(result);
+        return result;
     }
 
     private static long timeoutNanos(Duration timeout) {

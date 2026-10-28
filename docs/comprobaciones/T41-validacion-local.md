@@ -61,3 +61,8 @@ java -cp .\target\classes com.elevatormanager.diagnostics.LoggingDemo
 ```
 
 Se esperan 16 pruebas específicas, 72 seleccionadas y 434 acumuladas. Confirmar los valores reales y BUILD SUCCESS antes de marcar T41 cerrada. Commit sugerido: `T41: configurar logging por elevador`.
+
+
+## Confirmación posterior de David — 2026-10-28
+
+T41 cerrada en commit `7cc0c03`: 16 pruebas específicas y 434 acumuladas, sin fallos, errores u omisiones, con BUILD SUCCESS. LoggingDemo publicó diez registros en consola, cinco por cabina, y devolvió el prompt. Esta confirmación sustituye el estado pendiente de validación Windows de la entrega original; las comprobaciones locales descritas arriba mantienen su alcance. No se recibió ejecución de la selección de 72 pruebas por separado.

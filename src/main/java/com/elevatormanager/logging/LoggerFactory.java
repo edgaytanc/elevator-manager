@@ -2,6 +2,7 @@ package com.elevatormanager.logging;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -15,6 +16,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.ErrorManager;
+import java.util.Optional;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -29,6 +36,9 @@ public final class LoggerFactory implements AutoCloseable {
     private final List<OwnedLogHandlers> resources = new ArrayList<>();
     private final FileChannel lockChannel;
     private final FileLock directoryLock;
+    private Logger managerLogger;
+    private final AtomicReference<LogFailure> firstFailure = new AtomicReference<>();
+    private final AtomicLong errorCount = new AtomicLong();
     private boolean closed;
     private RuntimeException closeFailure;
 
@@ -48,6 +58,16 @@ public final class LoggerFactory implements AutoCloseable {
      */
     public static LoggerFactory open(Path directory, int elevatorCount, OutputStream console)
             throws IOException {
+        return open(directory, elevatorCount, console,
+                path -> new FileHandler(path.toString().replace("%", "%%"), true));
+    }
+
+    /** Inyección local para probar errores reales de StreamHandler sin depender del SO. */
+    @FunctionalInterface interface HandlerOpener { Handler open(Path path) throws IOException; }
+
+    static LoggerFactory open(Path directory, int elevatorCount, OutputStream console,
+            HandlerOpener opener) throws IOException {
+        Objects.requireNonNull(opener, "opener");
         Objects.requireNonNull(directory, "directory");
         Objects.requireNonNull(console, "console");
         if (elevatorCount < 1) { throw new IllegalArgumentException("Cantidad no positiva."); }
@@ -69,7 +89,14 @@ public final class LoggerFactory implements AutoCloseable {
         var factory = new LoggerFactory(channel, lock);
         try {
             for (int id = 1; id <= elevatorCount; id++) {
-                factory.configure(realDirectory, id, console);
+                factory.loggers.put(id, factory.configure(realDirectory.resolve("elevador" + id + ".log"),
+                        "elevador=" + id, new EventFormatter(id), console, opener));
+            }
+            factory.managerLogger = factory.configure(realDirectory.resolve("manejador.log"),
+                    "manejador", EventFormatter.forManager(), console, opener);
+            if (factory.failure().isPresent()) {
+                throw new IOException("Falló la inicialización de los destinos de logging.",
+                        factory.failure().orElseThrow().cause());
             }
             return factory;
         } catch (IOException | RuntimeException | Error error) {
@@ -78,23 +105,50 @@ public final class LoggerFactory implements AutoCloseable {
         }
     }
 
-    private void configure(Path directory, int id, OutputStream console) throws IOException {
+    private Logger configure(Path filePath, String actor, EventFormatter formatter,
+            OutputStream console, HandlerOpener opener) throws IOException {
         Logger logger = Logger.getAnonymousLogger();
         logger.setUseParentHandlers(false);
         logger.setLevel(Level.ALL);
-        // FileHandler interpreta % como patrón: los porcentajes del directorio son literales.
-        String pattern = directory.resolve("elevador" + id + ".log").toString().replace("%", "%%");
-        FileHandler file = new FileHandler(pattern, true);
+        Handler file = opener.open(filePath);
         var owned = new OwnedLogHandlers(logger, List.of(file));
-        resources.add(owned); // Desde este punto cualquier fallo cierra el archivo.
+        resources.add(owned);
+        file.setErrorManager(new TrackingErrorManager(actor, filePath.toString()));
         file.setEncoding(StandardCharsets.UTF_8.name());
-        file.setFormatter(new EventFormatter(id));
+        file.setFormatter(formatter);
         file.setLevel(Level.ALL);
-        var terminal = new FlushingConsoleHandler(console, new EventFormatter(id));
+        var terminal = new FlushingConsoleHandler(console, formatter, new TrackingErrorManager(actor, "consola"));
         resources.set(resources.size() - 1, new OwnedLogHandlers(logger, List.of(file, terminal)));
         logger.addHandler(file);
         logger.addHandler(terminal);
-        loggers.put(id, logger);
+        return logger;
+    }
+
+    public synchronized Logger managerLogger() {
+        if (closed) { throw new IllegalStateException("Logging cerrado."); }
+        return managerLogger;
+    }
+
+    public Optional<LogFailure> failure() { return Optional.ofNullable(firstFailure.get()); }
+    public long errorCount() { return errorCount.get(); }
+
+    /** No vuelve a registrar el fallo usando el destino averiado ni olvida fallos repetidos. */
+    private final class TrackingErrorManager extends ErrorManager {
+        private final String actor;
+        private final String destination;
+        TrackingErrorManager(String actor, String destination) {
+            this.actor = actor; this.destination = destination;
+        }
+        @Override public void error(String message, Exception cause, int code) {
+            errorCount.incrementAndGet();
+            var incident = new LogFailure(Instant.now(), actor, destination, code,
+                    message == null ? "Fallo de handler" : message,
+                    cause == null ? new IOException("Error de handler, código " + code) : cause);
+            if (firstFailure.compareAndSet(null, incident)) {
+                System.err.println("ERROR_LOGGING; actor=" + actor + "; destino=" + destination
+                        + "; codigo=" + code + "; causa=" + incident.cause());
+            }
+        }
     }
 
     /** La misma identidad durante toda la sesión; no se agregan handlers en cada consulta. */
@@ -118,6 +172,8 @@ public final class LoggerFactory implements AutoCloseable {
         }
         try { directoryLock.release(); } catch (IOException error) { errors.add(error); }
         try { lockChannel.close(); } catch (IOException error) { errors.add(error); }
+        failure().ifPresent(incident -> errors.add(new IOException(
+                "Logging degradado: " + incident.actor() + ", destino=" + incident.destination(), incident.cause())));
         if (!errors.isEmpty()) {
             closeFailure = new IllegalStateException("No se confirmó el cierre del logging.");
             errors.forEach(closeFailure::addSuppressed);
@@ -128,9 +184,10 @@ public final class LoggerFactory implements AutoCloseable {
     /** Herencia funcional: publica y vacía por registro sin cerrar la consola compartida. */
     private static final class FlushingConsoleHandler extends StreamHandler {
         private final OutputStream output;
-        FlushingConsoleHandler(OutputStream output, EventFormatter formatter) {
+        FlushingConsoleHandler(OutputStream output, EventFormatter formatter, ErrorManager errors) {
             super(output, formatter);
             this.output = output;
+            setErrorManager(errors);
             try { setEncoding(StandardCharsets.UTF_8.name()); }
             catch (java.io.UnsupportedEncodingException impossible) { throw new AssertionError(impossible); }
             setLevel(Level.ALL);
@@ -139,6 +196,14 @@ public final class LoggerFactory implements AutoCloseable {
             synchronized (output) {
                 super.publish(record);
                 flush();
+            }
+        }
+        @Override public synchronized void flush() {
+            super.flush();
+            // PrintStream (incluido System.err) oculta IOException: consultar su indicador.
+            if (output instanceof PrintStream terminal && terminal.checkError()) {
+                reportError("PrintStream informó un fallo de escritura o flush.",
+                        new IOException("El PrintStream de consola tiene errores."), ErrorManager.WRITE_FAILURE);
             }
         }
         @Override public synchronized void close() { flush(); }

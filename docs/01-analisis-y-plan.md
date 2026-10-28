@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 0–6 cerradas según confirmación de David y base T40 `f39eb3a` (418 pruebas Maven). T41 implementada y comprobada localmente; pendiente de Maven e incorporación en su equipo. Fase 7 en curso.
+- **Estado:** fases 0–6 y T41 cerradas. T41 validada por David con 434 pruebas Maven y commit `7cc0c03`. T42 implementada y comprobada localmente; pendiente de Maven e incorporación. Fase 7 en curso.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -254,8 +254,8 @@ elevator-manager/
 
 **Entrada:** motor y controles estables. **Salida:** trazabilidad y lotes reproducibles. **Dependencias:** fase 6. **Prioridad:** P0.
 
-- [ ] **T41 — Configurar logging por elevador.** Etiqueta: BASE. Crear `elevador1.log`, `elevador2.log`, etc., salida a consola y formatter legible con ID y fecha. **Aceptación:** cada archivo contiene solo su cabina y cada evento aparece una vez por destino previsto, sin duplicación por handlers heredados.
-- [ ] **T42 — Completar eventos obligatorios y errores.** Etiqueta: BASE. Registrar subida/bajada, llegada, parada, reset y cambio de dirección; agregar decisiones del manejador con identificación clara. **Aceptación:** una ejecución de muestra permite reconstruir lo sucedido y un error de escritura no pasa inadvertido.
+- [x] **T41 — Configurar logging por elevador.** Etiqueta: BASE. Crear `elevador1.log`, `elevador2.log`, etc., salida a consola y formatter legible con ID y fecha. **Aceptación:** cada archivo contiene solo su cabina y cada evento aparece una vez por destino previsto, sin duplicación por handlers heredados.
+- [x] **T42 — Completar eventos obligatorios y errores.** Etiqueta: BASE. Registrar subida/bajada, llegada, parada, reset y cambio de dirección; agregar decisiones del manejador con identificación clara. **Aceptación:** una ejecución de muestra permite reconstruir lo sucedido y un error de escritura no pasa inadvertido.
 - [ ] **T43 — Definir y documentar el formato del archivo.** Etiqueta: BASE. Usar texto UTF-8 con llamadas `HALL piso direccion` y destinos `CABIN id piso`; comentarios y líneas vacías según contrato. **Aceptación:** ejemplos válidos e inválidos y política de orden/duplicados documentados; no se exige calendarización porque el enunciado no la pide.
 - [ ] **T44 — Implementar parser y validación de lote.** Etiqueta: BASE. Validar archivo completo, argumentos, pisos, dirección e IDs, indicando línea del error. **Aceptación:** una línea inválida rechaza todo el lote, sin cargar parcialmente ni modificar el lote anterior.
 - [ ] **T45 — Integrar importación limitada a RESET.** Etiqueta: BASE. Comprobar estado antes y al confirmar; preparar trabajo y distribuirlo al iniciar. **Aceptación:** importar no mueve cabinas; está permitido al inicio y tras reset completo, y está bloqueado en los demás estados.
@@ -498,4 +498,9 @@ Se agregan 24 escenarios con actores reales, productores simultáneos, barreras 
 
 ## 21. Avance T41 — Logging por elevador
 
-Base recibida: T40, commit `f39eb3a`; fases 0–6 cerradas. Se agregan LoggerFactory, EventFormatter y LoggingDemo: archivos UTF-8 por cabina, consola sin propagación a handlers padre, identidades estables, append, exclusión de sesiones en el directorio y liberación de recursos mediante el contrato T39. Los 16 escenarios nuevos verifican aislamiento, escritura concurrente, reapertura y propiedad del controlador. Ver [implementación T41](implementacion/T41-logging-por-elevador.md), [código completo](implementacion/T41-codigo-completo.md) y [validación local](comprobaciones/T41-validacion-local.md). La tarjeta queda pendiente de Maven e incorporación en el equipo de David; se esperan 434 pruebas acumuladas. T42 integrará los eventos obligatorios del motor y las decisiones del manejador.
+Base recibida: T40, commit `f39eb3a`; fases 0–6 cerradas. Se agregan LoggerFactory, EventFormatter y LoggingDemo: archivos UTF-8 por cabina, consola sin propagación a handlers padre, identidades estables, append, exclusión de sesiones en el directorio y liberación de recursos mediante el contrato T39. Los 16 escenarios nuevos verifican aislamiento, escritura concurrente, reapertura y propiedad del controlador. Ver [implementación T41](implementacion/T41-logging-por-elevador.md), [código completo](implementacion/T41-codigo-completo.md) y [validación local](comprobaciones/T41-validacion-local.md). David confirmó 16 pruebas específicas, 434 acumuladas, BUILD SUCCESS, ejecución correcta de LoggingDemo y commit `7cc0c03`; T41 queda cerrada. Los eventos físicos y decisiones del manejador se integran en T42.
+
+
+## 22. Avance T42 — Eventos obligatorios y errores
+
+Se agrega SessionLog con un consumidor en hilo independiente y TraceMailbox adicional, sin consumir canales existentes ni escribir bajo locks de los actores. Registra todos los ExecutionEvent por cabina y las decisiones, cambios de seguimiento, reset y fallos del manejador en manejador.log. Se conservan secuencia, época, sesión, comando, solicitud y causa. ErrorManager captura incidencias de handlers, incluidas las ocultadas por PrintStream; se conserva la primera causa, se cuentan reportes y se avisa por stderr. El cierre drena después de terminar los actores y propaga degradación sin confirmar CLOSED exitoso. Ver [implementación T42](implementacion/T42-eventos-obligatorios-y-errores.md), [código completo](implementacion/T42-codigo-completo.md) y [validación local](comprobaciones/T42-validacion-local.md). T42 queda pendiente de Maven e incorporación; se esperan 458 pruebas acumuladas sobre T41.

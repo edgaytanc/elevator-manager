@@ -1,5 +1,7 @@
 package com.elevatormanager.simulation;
 
+import com.elevatormanager.logging.SessionLog;
+import com.elevatormanager.logging.TraceMailbox;
 import com.elevatormanager.dispatch.HallCallSnapshot;
 import com.elevatormanager.dispatch.ManagerWorker;
 import com.elevatormanager.model.ElevatorSnapshot;
@@ -37,6 +39,7 @@ public final class SimulationController implements AutoCloseable {
     public record Result(Outcome outcome, SimulationState state, String detail,
             Optional<Command.Destination> command, long epoch) { }
 
+    private final Optional<SessionLog> sessionLog;
     private final SimulationConfig config;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
@@ -61,19 +64,36 @@ public final class SimulationController implements AutoCloseable {
     private boolean workersStarted;
 
     public SimulationController(SimulationConfig config, long epoch) {
+        this(config, epoch, Optional.empty());
+    }
+
+    /** Transfiere el logging al controlador si la construcción termina correctamente. */
+    public SimulationController(SimulationConfig config, long epoch, SessionLog sessionLog) {
+        this(config, epoch, Optional.of(Objects.requireNonNull(sessionLog, "sessionLog")));
+    }
+
+    private SimulationController(SimulationConfig config, long epoch, Optional<SessionLog> sessionLog) {
+        this.sessionLog = sessionLog;
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
+        TraceMailbox trace = sessionLog.map(SessionLog::mailbox).orElse(TraceMailbox.disabled());
         elevators = java.util.stream.IntStream.rangeClosed(1, config.elevatorCount())
-                .mapToObj(id -> new ElevatorWorker(id, config, epoch)).toList();
+                .mapToObj(id -> new ElevatorWorker(id, config, epoch, trace)).toList();
         elevators.forEach(e -> e.subscribeEvents(events));
-        manager = new ManagerWorker(config, epoch, elevators, this::nextCommandId);
+        manager = new ManagerWorker(config, epoch, elevators, this::nextCommandId, trace);
+        sessionLog.ifPresent(log -> {
+            log.claim(config.elevatorCount());
+            ownedResources.add(log);
+        });
     }
 
     public SimulationConfig config() { return config; }
     public long epoch() { return epoch; }
     public SimulationState state() { return state; }
-    public Optional<Throwable> failure() { return Optional.ofNullable(failure); }
+    public Optional<Throwable> failure() {
+        return failure != null ? Optional.of(failure) : sessionLog.flatMap(SessionLog::failure);
+    }
 
     /** Copias inmutables por cabina; no representan un instante físico global único. */
     public List<ElevatorSnapshot> snapshots() {

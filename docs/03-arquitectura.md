@@ -361,3 +361,16 @@ T13 desarrollará la herencia de solicitudes; T14 concretará sincronización, c
 | 0.2.0 | 2026-10-20 | T12: propietarios, datos y resultados, operaciones asíncronas, eventos, dependencias y criterios de integración. Actualización de nombres y construcción según T10/T11. |
 
 **Siguiente tarea:** T13 — Diseñar la herencia de solicitudes.
+
+
+## Integración T42 — Historial de sesión
+
+Los constructores existentes de ElevatorWorker, ManagerWorker y SimulationController siguen disponibles sin archivos ni consumidor de logs. La composición con logging usa SessionLog.open fuera del EDT y el constructor SimulationController(config, epoch, sessionLog). Una asociación compatible transfiere el recurso al controlador una sola vez; una construcción rechazada deja la propiedad al llamador.
+
+Cada cabina publica una copia adicional de sus ExecutionEvent en TraceMailbox desde flushEvents, fuera del lock local. El manejador encola sus decisiones y las diferencias de HallCallSnapshot; no realiza I/O al despachar ni invoca callbacks de consumidores. La cola es fiable y no acotada, como los canales de eventos previos: no descarta registros, pero puede crecer si el almacenamiento permanece lento. No se afirma tolerancia ilimitada a falta de memoria ni persistencia ante caída del proceso.
+
+SessionLog consume en su propio hilo y escribe mediante LoggerFactory. Fecha UTC de publicación, UUID de sesión, secuencia por actor, época y reloj monotónico permiten reconstruir el historial. La secuencia entre actores no impone causalidad física global. El logging conserva épocas anteriores para auditoría; el filtro vigente del controlador sigue aplicándose únicamente a sus consumidores operativos.
+
+El cierre del controlador termina coordinador, manejador y cabinas antes de sellar y drenar TraceMailbox. El marcador FIFO asegura que los eventos finales precedan al cierre de handlers. Un recurso registrado posteriormente se libera antes del logging por el orden inverso de adquisición.
+
+LoggerFactory configura destinos independientes elevadorN.log y manejador.log, además de consola. Su ErrorManager conserva la primera incidencia y un contador total de reportes. SessionLog.failure y SimulationController.failure exponen la degradación durante la ejecución. El motor continúa mientras se registra la incidencia; no hay reintento automático ni promesa de recuperar registros perdidos. El cierre libera recursos pero completa excepcionalmente y no publica CLOSED exitoso si hubo fallos de logging. La interfaz mínima no crea todavía una sesión configurada ni muestra un panel de incidencias; esa composición gráfica pertenece a sus tarjetas futuras.

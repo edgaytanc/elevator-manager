@@ -3,7 +3,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 7 — Implementar logs y carga de solicitudes.
 - **Base:** ZIP actualizado, commit `f39eb3a`, árbol limpio. David confirmó cierre de fase 6; el contexto anterior reporta 418 pruebas Maven satisfactorias.
-- **Estado:** implementada y comprobada con Java 17; pendiente de Maven e incorporación en el equipo de David. T41 sigue sin marcar en el Kanban hasta esa validación.
+- **Estado:** cerrada. David confirmó 16 pruebas específicas, 434 acumuladas, BUILD SUCCESS, diagnóstico correcto y commit `7cc0c03`. Esta ficha conserva el alcance y los comandos de la entrega original T41; T42 incorpora el manejador y los eventos físicos.
 
 ## Alcance
 

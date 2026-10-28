@@ -1,5 +1,6 @@
 package com.elevatormanager.simulation;
 
+import com.elevatormanager.logging.TraceMailbox;
 import com.elevatormanager.model.ElevatorSnapshot;
 import com.elevatormanager.model.ElevatorPhase;
 import com.elevatormanager.model.ElevatorState;
@@ -46,6 +47,7 @@ public final class ElevatorWorker implements AutoCloseable {
         public Service { requests = List.copyOf(requests); }
     }
 
+    private final TraceMailbox trace;
     private final ElevatorState state;
     private final CommandLedger ledger;
     private final ReentrantLock lock = new ReentrantLock();
@@ -74,6 +76,11 @@ public final class ElevatorWorker implements AutoCloseable {
     private Optional<Direction> completedSweep = Optional.empty();
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch) {
+        this(id, config, epoch, TraceMailbox.disabled());
+    }
+
+    public ElevatorWorker(int id, SimulationConfig config, long epoch, TraceMailbox trace) {
+        this.trace = Objects.requireNonNull(trace, "trace");
         state = new ElevatorState(id, config, epoch);
         ledger = new CommandLedger(state);
         published = new AtomicReference<>(capture(System.nanoTime()));
@@ -575,6 +582,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private void flushEvents() {
         for (ExecutionEvent event : eventBatch) {
             events.add(event);
+            trace.cabin(event, failure);
             for (var subscriber : subscribers) { subscriber.publish(event); }
         }
         eventBatch.clear();
