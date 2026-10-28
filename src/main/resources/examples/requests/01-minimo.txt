@@ -1,0 +1,2 @@
+# Minimo: N=1, P=4
+CABIN 1 4

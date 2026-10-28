@@ -21,10 +21,18 @@ import static com.elevatormanager.io.BatchDiagnostic.Code.*;
 import static com.elevatormanager.io.RequestFileFormat.*;
 
 /**
- * Parser síncrono sin estado compartido. Invocar lecturas fuera del EDT.
+ * Parser síncrono con configuración inmutable. Invocar lecturas fuera del EDT.
  * No confirma importaciones ni conoce el controlador o los trabajadores.
  */
 public final class RequestFileReader {
+    @FunctionalInterface interface InputOpener { InputStream open(Path path) throws IOException; }
+    private final InputOpener opener;
+
+    public RequestFileReader() { this(path -> Files.newInputStream(path)); }
+
+    /** Punto de prueba del paquete para fallos de apertura/lectura/cierre, sin modificar permisos. */
+    RequestFileReader(InputOpener opener) { this.opener = Objects.requireNonNull(opener, "opener"); }
+
     private static final String GRAMMAR = "HALL <piso> <UP|DOWN> o CABIN <idElevador> <piso>";
 
     /** Abre y cierra su propio stream, incluso ante límite, interrupción o error. */
@@ -33,7 +41,7 @@ public final class RequestFileReader {
         try {
             checkInterrupted();
             byte[] content;
-            try (InputStream input = Files.newInputStream(path)) { content = readBounded(input); }
+            try (InputStream input = opener.open(path)) { content = readBounded(input); }
             return parse(content, config);
         } catch (IOException | SecurityException error) { return readError(error); }
     }

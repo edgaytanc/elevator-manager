@@ -122,3 +122,8 @@ mvn clean verify
 ```
 
 Se esperan 40 específicas, 191 seleccionadas y 546 acumuladas. Confirmar los resultados reales y BUILD SUCCESS antes de cerrar T45. Commit sugerido: `T45: integrar importacion limitada a RESET`.
+
+
+## Confirmación posterior de David — 2026-10-28
+
+T45 cerrada en commit `4f99454`: 40 pruebas específicas y 546 acumuladas, sin fallos, errores ni omisiones; ambas ejecuciones terminaron con BUILD SUCCESS. Esta evidencia sustituye el estado pendiente de Maven de la entrega original. No se recibió ejecución separada de la selección de 191 pruebas ni comprobación manual de RequestImportDemo.

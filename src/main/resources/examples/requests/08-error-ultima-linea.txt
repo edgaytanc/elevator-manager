@@ -1,0 +1,4 @@
+# Ninguna entrada se confirma; N=2, P=8
+HALL 3 UP
+CABIN 1 8
+HALL 8 UP

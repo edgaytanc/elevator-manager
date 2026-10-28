@@ -401,3 +401,12 @@ Start efectivo desde RESET invalida una lectura aún pendiente, consume el lote 
 Reset invalida lectura, lote e informe anteriores; después del retorno puede confirmarse otro lote en la nueva época. Cerrar invalida lecturas, interrumpe y apaga el ejecutor I/O, finaliza actores y espera la terminación real del ejecutor antes de cerrar recursos y confirmar CLOSED. Una lectura externa que ignore interrupciones puede demorar el cierre; un timeout no equivale a liberación. No se publica CLOSED ni se olvida el hilo para aparentar éxito.
 
 RequestImportDemo compone la API, SessionLog y los actores desde consola. La GUI mínima conserva su composición previa; los controles/selector se conectarán en sus tarjetas de interfaz y ejemplos.
+
+
+## Extensión T46 — Selección y fallos de lectura
+
+RequestImportHandler recibe un selector sin I/O de contenido, invocado en EDT. Su fábrica forDialog compone JFileChooser; la ventana principal no se modifica. CANCEL_OPTION termina sin llamar a importRequests ni cancelImport. La reentrada mientras un diálogo modal está abierto se rechaza; una aprobación no omite la validación del controlador. Los resultados y fallos se aplican mediante callbacks en EDT, y un recibo obsoleto se marca STALE. El diagnóstico FileSelectionDemo solo muestra datos de recibos vigentes y siempre consulta el lote actual.
+
+RequestFileReader conserva su API pública y usa Files.newInputStream por defecto. Un InputOpener final, inyectable solo desde el paquete, permite comprobar denegación, lectura parcial, cierre y causas suprimidas en tests reproducibles. No se añade un ejecutor, no se relajan permisos y no se consulta Files.isReadable como autorización: el resultado real de abrir/leer manda.
+
+Los ejemplos se guardan una sola vez en src/main/resources/examples/requests y los tests los cargan por classloader, por lo que no dependen del directorio de ejecución. Las pruebas de integración los copian a archivos temporales para usar la API pública de importación. El cierre del diagnóstico reutiliza WindowCloseHandler y espera al controlador antes de disponer la ventana.

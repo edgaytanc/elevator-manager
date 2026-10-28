@@ -13,3 +13,12 @@ trim_trailing_whitespace = false
 
 [*.json]
 indent_size = 4
+
+# T46: datos con bytes intencionales; no aplicar la normalizacion del codigo.
+[src/main/resources/examples/requests/*.txt]
+charset = unset
+end_of_line = unset
+insert_final_newline = false
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = false

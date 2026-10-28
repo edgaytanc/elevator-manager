@@ -1,0 +1,5 @@
+
+  # Petición con acentos y 🛗; N=2, P=8
+
+   HALL   3  UP
+  CABIN  2  004

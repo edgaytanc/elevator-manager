@@ -1,0 +1,7 @@
+# N=2, P=8; llamadas y destinos independientes
+HALL 1 UP
+HALL 3 DOWN
+HALL 4 UP
+HALL 8 DOWN
+CABIN 1 7
+CABIN 2 2

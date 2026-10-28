@@ -212,3 +212,10 @@ Las carreras de importación/confirmación, sustitución de un lote en el contro
 RequestImportScenarios y RequestImportTest agregan 40 escenarios de preparación sin movimiento, confirmación, reemplazo, rechazo fuera de RESET, envío único, continuidad Stop/Start, épocas, cancelación, respuestas diferidas, lectura más reciente, cierre y recursos. Lectores de prueba retenidos con CountDownLatch fuerzan las carreras sin inferir estados por dormir. Se compara identidad de hilos y se mantiene vivo un lector que ignora interrupción para verificar que CLOSED espera su salida real.
 
 T44 ya tiene 48 pruebas específicas y 506 acumuladas confirmadas por David en `9ae324d`. T45 espera 546 acumuladas y mantiene pendiente su ejecución Maven. La regresión independiente y las muestras están en [validación T45](comprobaciones/T45-validacion-local.md). Los resultados de importación son de preparación, y los informes de Start solo de envío; el servicio se prueba por ExecutionEvent/canónicas y seguimiento del manejador.
+
+
+## Avance T46 — Catálogo y recuperación, 2026-10-28
+
+Se agregan 32 escenarios en ReadFailureTest (12), FileSelectionTest (12) e ImportReadErrorTest (8), con sus main independientes. Cubren los 22 archivos distribuidos, causas de apertura/lectura/cierre, recuperación del lote, cancelación del selector, callbacks EDT, respuesta diferida y ejecución real de los siete archivos válidos. El acceso denegado se inyecta como AccessDeniedException en el lector, sin omitir su lógica ni cambiar permisos del proyecto.
+
+La regresión independiente cuenta 533 escenarios en 27 grupos. Los recursos también se verifican dentro de un JAR auxiliar ejecutado desde otro directorio. No se ejecutó Maven ni un JFileChooser nativo en este entorno; T46 espera 578 pruebas acumuladas y una revisión visual del diagnóstico en el equipo de David. La tentativa adicional de probar con un proceso sin privilegios quedó bloqueada por el entorno; no se afirma que se hayan validado ACL reales de Windows o POSIX. Ver [validación T46](comprobaciones/T46-validacion-local.md).

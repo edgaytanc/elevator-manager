@@ -1,0 +1,7 @@
+# N=2, P=8; conservar las seis instrucciones
+HALL 3 UP
+HALL 003 UP
+CABIN 1 5
+CABIN 1 005
+CABIN 2 5
+HALL 3 DOWN

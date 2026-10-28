@@ -1,0 +1,5 @@
+# Tres errores y una instrucción válida, N=2, P=8
+HALL 8 UP
+CABIN 3 4
+HALL 3 ARRIBA
+CABIN 1 4

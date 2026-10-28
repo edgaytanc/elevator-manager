@@ -1,0 +1,4 @@
+# Tres cabinas: N=3, P=8
+CABIN 1 8
+CABIN 2 4
+CABIN 3 6

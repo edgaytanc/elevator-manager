@@ -12,3 +12,10 @@
 *.pdf binary
 *.zip binary
 *.jar binary
+
+# T46: conservar bytes intencionales de los ejemplos de lectura.
+/src/main/resources/examples/requests/*.txt -text
+# Estos tres archivos contienen terminadores/codificacion intencionales; mostrar diff binario.
+/src/main/resources/examples/requests/06-bom-crlf.txt -diff
+/src/main/resources/examples/requests/14-utf8-invalido.txt -diff
+/src/main/resources/examples/requests/20-cr-aislado.txt -diff

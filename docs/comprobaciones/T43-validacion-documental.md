@@ -33,4 +33,4 @@ No se afirma que los ejemplos puedan importarse todavía. Los archivos de muestr
 
 ## Cierre de la tarjeta
 
-Pendiente de revisión e incorporación por David. Ver [ficha T43](../implementacion/T43-formato-archivo-solicitudes.md) y [contrato 07](../07-formato-archivo-solicitudes.md). Commit sugerido: `T43: definir formato del archivo de solicitudes`. La siguiente tarjeta es T44.
+Contrato adoptado al solicitar T44 y contrastado posteriormente con su parser Java real. No se ha comunicado hash individual de T43; no se atribuye uno. Ver [ficha T43](../implementacion/T43-formato-archivo-solicitudes.md) y [contrato 07](../07-formato-archivo-solicitudes.md). Commit sugerido: `T43: definir formato del archivo de solicitudes`. La siguiente tarjeta es T44.

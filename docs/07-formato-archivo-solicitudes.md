@@ -4,7 +4,7 @@
 - **Versión del contrato de archivo:** 1.0.0.
 - **Fecha:** 2026-10-28, Guatemala.
 - **Tarjeta:** T43; base T42 validada en `ae5a1bf`, 458 pruebas Maven satisfactorias.
-- **Estado:** contrato 1.0.0 sin cambios de reglas. Parser T44 validado en `9ae324d`. Importación al controlador T45 implementada y comprobada localmente, pendiente de Maven; aún no hay selector gráfico de archivos.
+- **Estado:** contrato 1.0.0 sin cambios de reglas. Parser T44 validado en `9ae324d` e importación T45 en `4f99454`. T46 distribuye ejemplos y un selector reutilizable con diagnóstico gráfico; pendientes de Maven y revisión visual. La ventana principal sigue sin controles operativos completos.
 - **Referencias:** [decisiones D17–D23](02-decisiones.md), [arquitectura](03-arquitectura.md), [resumen previo en 05](05-protocolo.md#7-formato-de-archivo-de-solicitudes).
 
 ## 1. Alcance y autoridad
@@ -271,3 +271,10 @@ La confirmación y materialización se realizan en el coordinador del controlado
 Una lectura nueva invalida la anterior y deja una sola lectura pendiente en cola, conservando mientras tanto el lote ya confirmado. Start invalida la lectura en curso y utiliza el lote que ya estaba confirmado, si existe. Un resultado inválido o cancelación conserva ese lote; reset y cierre lo invalidan. Cancelar un futuro visible solo cancela ese observador; cancelImport es la cancelación explícita de la lectura activa. El cierre espera que el ejecutor termine realmente, incluso si un lector no atiende la interrupción de inmediato.
 
 Estas políticas concretan la integración; no cambian la gramática de archivos ni añaden tiempos, controles o campos nuevos al texto. Start presenta el lote en orden a la misma ruta usada por admisiones manuales y publica un informe de envío. No se garantiza orden de aceptación ni finalización entre actores, ni ejecución atómica de los servicios físicos.
+
+
+## 13. Ejemplos distribuidos y selección T46
+
+El [catálogo](../src/main/resources/examples/requests/README.md) contiene siete archivos válidos y quince errores intencionales con configuración, línea/código esperado y notas de bytes especiales. Se incluyen como recursos sin filtrado por la configuración estándar de Maven; .gitattributes evita su conversión de terminadores. El archivo vacío es de cero bytes y el UTF-8 inválido debe conservarse como tal.
+
+Cancelar el diálogo de RequestImportHandler no llama al lector, no vacía el lote ni cancela otra lectura activa. Un archivo aprobado sigue el flujo asíncrono T45 y sus resultados se entregan en EDT, comprobando vigencia antes de aplicarlos. Un archivo inexistente, vacío o sin lectura produce INVALID con diagnósticos, conserva el lote confirmado y permite volver a seleccionar. Los errores propios del selector se notifican por el callback de fallo, separados de los errores de archivo.

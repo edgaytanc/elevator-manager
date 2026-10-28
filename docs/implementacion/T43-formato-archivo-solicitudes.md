@@ -3,7 +3,7 @@
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 7 — Implementar logs y carga de solicitudes.
 - **Base:** T42 validada por David en `ae5a1bf`: 24 pruebas específicas, 458 acumuladas, BUILD SUCCESS y EventLoggingDemo terminado correctamente.
-- **Estado:** contrato definido y comprobado documentalmente; pendiente de revisión e incorporación. No se marca T43 completada antes de esa confirmación.
+- **Estado:** contrato adoptado al solicitar T44 y contrastado con el parser real de esa tarjeta. No se ha comunicado hash individual de T43; se registra su adopción documental sin inventar un commit. Los ejemplos físicos se distribuyen en T46.
 
 ## Entrega y alcance
 
