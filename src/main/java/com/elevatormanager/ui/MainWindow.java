@@ -2,6 +2,8 @@ package com.elevatormanager.ui;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.Rectangle;
+import java.awt.GraphicsEnvironment;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.concurrent.CompletableFuture;
@@ -53,12 +55,24 @@ public final class MainWindow {
         });
         frame.add(new JLabel("Elevator Manager — Simulador de elevadores", SwingConstants.CENTER), BorderLayout.NORTH);
         frame.add(controls, BorderLayout.CENTER);
-        frame.setMinimumSize(new Dimension(1060, 760));
+        Rectangle usable = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
+        frame.setMinimumSize(minimumSize(usable));
         frame.pack();
-        frame.setLocationRelativeTo(null);
+        frame.setBounds(initialBounds(usable));
     }
 
     public void showWindow() { requireEventDispatchThread(); frame.setVisible(true); }
+
+    /** Geometría pura para probar pantallas pequeñas y coordenadas virtuales sin JFrame. */
+    static Rectangle initialBounds(Rectangle usable) {
+        if (usable.width < 1 || usable.height < 1) throw new IllegalArgumentException("Área de pantalla inválida.");
+        int width = Math.min(1180, usable.width); int height = Math.min(860, usable.height);
+        return new Rectangle(usable.x + (usable.width - width) / 2, usable.y + (usable.height - height) / 2, width, height);
+    }
+    static Dimension minimumSize(Rectangle usable) {
+        if (usable.width < 1 || usable.height < 1) throw new IllegalArgumentException("Área de pantalla inválida.");
+        return new Dimension(Math.min(720, usable.width), Math.min(480, usable.height));
+    }
 
     private static void requireEventDispatchThread() {
         if (!SwingUtilities.isEventDispatchThread()) {

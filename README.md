@@ -1,6 +1,6 @@
 # Elevator Manager
 
-Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T50 — paneles y botones internos de cabina.** Fases 1–7 y T47–T49 cerradas; base validada T49, commit `2b17a64`, 650 pruebas satisfactorias.
+Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T51 — visor de eventos y adaptación de tamaño.** Fases 1–7 y T47–T50 cerradas; base validada T50, commit `1d3378b`, 682 pruebas satisfactorias y revisión visual confirmada.
 
 El motor ya dispone de trabajadores independientes por elevador, manejador con hilo propio, solicitudes con herencia real, Stop/continuación, Reset, cierre asíncrono, logs e importación validada en RESET. El formulario de entrada captura N, P y ambos tiempos en milisegundos. T48 conecta preparación de sesión, Start, Stop/continuación, Reset, carga de archivos en RESET y cierre con confirmación real.
 
@@ -17,12 +17,12 @@ El motor ya dispone de trabajadores independientes por elevador, manejador con h
 El ZIP contiene el proyecto fuente completo con rutas relativas a la raíz Maven, sin .git, target ni logs generados. Extraer sobre la raíz de elevator-manager, conservando el repositorio local. Los archivos pom.xml, README.md, src y docs deben quedar al mismo nivel.
 
 ```powershell
-mvn "-Dtest=CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
+mvn "-Dtest=EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
 mvn clean verify
 java -jar .\target\elevator-manager-0.1.0-SNAPSHOT.jar
 ```
 
-T50 agrega 32 pruebas. Se esperan 32 específicas de CabinPanelsTest, 104 junto a llamadas/controles/formulario y 682 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
+T51 agrega 40 pruebas. Se esperan 40 específicas de EventViewerTest, 144 junto a la interfaz anterior y 722 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
 
 ## Formulario actual
 
@@ -38,19 +38,28 @@ Validar prepara la sesión, pero solo Start habilita la ejecución normal. Reset
 
 ## Llamadas externas
 
-El selector está limitado a 1..P; al escribir un piso, confirmar con Enter. Subir está deshabilitado en P y Bajar en 1; con P=1 ambos están deshabilitados. Los botones solo admiten llamadas en RUNNING. Cada llamada pasa por el manejador: la interfaz no elige cabina ni modifica agendas. Repetir una llamada activa utiliza la deduplicación existente. El mensaje de envío no confirma atención; la atención real se registra en logs. Las recogidas asignadas se muestran en la pestaña de su cabina hasta la atención; el visor de eventos corresponde a T51.
+El selector está limitado a 1..P; al escribir un piso, confirmar con Enter. Subir está deshabilitado en P y Bajar en 1; con P=1 ambos están deshabilitados. Los botones solo admiten llamadas en RUNNING. Cada llamada pasa por el manejador: la interfaz no elige cabina ni modifica agendas. Repetir una llamada activa utiliza la deduplicación existente. El mensaje de envío no confirma atención; la atención real se registra en logs. Las recogidas asignadas se muestran en la pestaña de su cabina hasta la atención; el visor inferior permite revisar los eventos recientes.
 
 ## Cabinas y destinos internos
 
 Se crea una pestaña por elevador. Cada una muestra piso actual/siguiente, dirección y estado. Los botones de destino se habilitan en RUNNING y usan páginas de hasta 20 pisos; el resumen enumera todos los destinos pendientes, aunque su página no esté visible. Amarillo y el indicador ● significan destino admitido y pendiente. Enviar no equivale a admisión ni atención: las luces se actualizan desde snapshots. Stop conserva pendientes y luces; Reset cancela las solicitudes y las limpia. Las llamadas externas se muestran por piso y sentido en la cabina elegida por el manejador.
 
+## Visor y tamaño de ventana
+
+El visor inferior muestra registros recientes del manejador y las cabinas. **Seguir últimos** controla el desplazamiento automático; desmarcarlo permite inspeccionar el historial sin detener logging. **Limpiar visor** solo limpia esta vista. Se muestran hasta 300 registros/120000 caracteres; la copia reciente conserva hasta 500 registros/300000 caracteres de mensaje, con mensajes limitados a 1200 caracteres. Los recortes se informan en el pie del visor; los archivos conservan el registro completo cuando el logging funciona correctamente.
+
+Los controles del sistema permanecen arriba. El espacio de trabajo tiene desplazamiento vertical/horizontal y un divisor permite repartir altura con el visor. La ventana inicial se ajusta al área útil de pantalla. Para inspeccionar muchas cabinas, usar el selector **Cabina** y **Ver cabina**, además de las pestañas desplazables.
+
 ## Logs de la sesión
 
-Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `elevador1.log` ... `elevadorN.log` y `manejador.log`. La creación, lectura y liberación se realizan fuera del EDT. El área de texto del panel muestra el resultado de la última acción; el visor de eventos corresponde a T51.
+Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `elevador1.log` ... `elevadorN.log` y `manejador.log`. La creación, lectura y liberación se realizan fuera del EDT. El área superior muestra el resultado de la última acción y el visor inferior muestra eventos recientes. Abrir/cerrar y leer archivos no ocurre en EDT.
 
 ## Documentación
 
 - [Plan y estado de tareas](docs/01-analisis-y-plan.md).
+- [Implementación, incorporación y prueba visual T51](docs/implementacion/T51-visor-eventos-y-tamano.md).
+- [Código completo T51](docs/implementacion/T51-codigo-completo.md).
+- [Validación local T51](docs/comprobaciones/T51-validacion-local.md).
 - [Implementación, incorporación y prueba visual T50](docs/implementacion/T50-paneles-y-botones-cabina.md).
 - [Código completo T50](docs/implementacion/T50-codigo-completo.md).
 - [Validación local T50](docs/comprobaciones/T50-validacion-local.md).

@@ -1,5 +1,7 @@
 # T50 — Crear paneles y botones internos de cabina
 
+> Cierre completo confirmado al iniciar T51: 32 pruebas específicas, 104 combinadas y 682 acumuladas, BUILD SUCCESS, commit `1d3378b` y árbol limpio. Se aportaron registros de servicio/Reset completo/cierre y capturas de RESET y atención en piso 4 con destino 8 aún encendido. El informe siguiente conserva el estado previo al cierre.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 8 — Construir la interfaz gráfica obligatoria.
 - **Base:** T49 validada en `2b17a64`, 28 pruebas específicas, 72 combinadas y 650 acumuladas; BUILD SUCCESS, llamadas servidas y árbol limpio.

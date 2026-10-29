@@ -27,7 +27,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.JSplitPane;
 
-/** T50: controles, llamadas y paneles de cabina; ningún get/join, lectura o apertura en EDT. */
+/** T51: controles, cabinas y visor reciente acotado; ningún get/join, lectura o apertura en EDT. */
 public final class SystemControlPanel extends JPanel {
     private static final long serialVersionUID = 1L;
     public enum Action { START, STOP, RESET, LOAD, CLOSE }
@@ -37,9 +37,10 @@ public final class SystemControlPanel extends JPanel {
     private final ConfigurationPanel configuration;
     private final HallCallPanel hallCalls;
     private final CabinDashboardPanel cabinDashboard;
+    private final EventViewerPanel eventViewer;
     private final EnumMap<Action, JButton> buttons = new EnumMap<>(Action.class);
     private final JLabel stateLabel = new JLabel();
-    private final JTextArea detail = new JTextArea(4, 54);
+    private final JTextArea detail = new JTextArea(2, 54);
     private final SessionOpener opener;
     private final Supplier<Optional<Path>> selector;
     private final Timer refresh;
@@ -74,7 +75,13 @@ public final class SystemControlPanel extends JPanel {
         workspace.setMinimumSize(new java.awt.Dimension(350, 300));
         var split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workspace, cabinDashboard);
         split.setResizeWeight(0.45);
-        add(split, BorderLayout.CENTER);
+        var workspaceScroll = new JScrollPane(split);
+        workspaceScroll.setMinimumSize(new java.awt.Dimension(200, 120));
+        eventViewer = new EventViewerPanel();
+        var vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT, workspaceScroll, eventViewer);
+        vertical.setResizeWeight(0.8);
+        vertical.setContinuousLayout(true);
+        add(vertical, BorderLayout.CENTER);
         var controls = new JPanel(new BorderLayout(6, 6));
         var actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
         String[] titles = {"Start", "Stop", "Reset", "Cargar archivo", "Cerrar"};
@@ -88,8 +95,10 @@ public final class SystemControlPanel extends JPanel {
         detail.setEditable(false);
         detail.setLineWrap(true);
         detail.setWrapStyleWord(true);
-        controls.add(new JScrollPane(detail), BorderLayout.SOUTH);
-        add(controls, BorderLayout.SOUTH);
+        var detailScroll = new JScrollPane(detail);
+        detailScroll.setPreferredSize(new java.awt.Dimension(400, 48));
+        controls.add(detailScroll, BorderLayout.SOUTH);
+        add(controls, BorderLayout.NORTH);
         buttons.get(Action.START).addActionListener(event -> command(Action.START));
         buttons.get(Action.STOP).addActionListener(event -> command(Action.STOP));
         buttons.get(Action.RESET).addActionListener(event -> command(Action.RESET));
@@ -139,6 +148,7 @@ public final class SystemControlPanel extends JPanel {
             } else {
                 hallCalls.bind(session);
                 cabinDashboard.bind(session);
+                eventViewer.bind(session);
                 message("Sesión preparada en RESET. Puedes cargar un archivo o pulsar Start.");
             }
             updateView();
@@ -267,6 +277,7 @@ public final class SystemControlPanel extends JPanel {
         boolean idle = pending == null;
         hallCalls.refresh(usable && idle && !loading);
         cabinDashboard.refresh(usable && idle && !loading);
+        eventViewer.refresh();
         buttons.get(Action.START).setEnabled(usable && idle && !loading
                 && (state == SimulationState.RESET || state == SimulationState.STOPPED));
         buttons.get(Action.STOP).setEnabled(usable && idle && state == SimulationState.RUNNING);
@@ -300,6 +311,7 @@ public final class SystemControlPanel extends JPanel {
     }
 
     public Optional<SimulationController> controller() { requireEdt(); return Optional.ofNullable(controller); }
+    EventViewerPanel eventViewer() { requireEdt(); return eventViewer; }
     CabinDashboardPanel cabinDashboard() { requireEdt(); return cabinDashboard; }
     HallCallPanel hallCallPanel() { requireEdt(); return hallCalls; }
     ConfigurationPanel configurationPanel() { requireEdt(); return configuration; }

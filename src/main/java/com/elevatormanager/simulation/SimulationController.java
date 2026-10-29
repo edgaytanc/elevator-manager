@@ -128,6 +128,11 @@ public final class SimulationController implements AutoCloseable {
         });
     }
 
+    /** Vista reciente no destructiva; no consume awaitEvent ni afecta al log completo. */
+    public Optional<com.elevatormanager.logging.RecentEventBuffer> recentLogEvents() {
+        return sessionLog.map(SessionLog::recentEvents);
+    }
+
     public SimulationConfig config() { return config; }
     public long epoch() { return epoch; }
     public UUID sessionId() { return sessionId; }

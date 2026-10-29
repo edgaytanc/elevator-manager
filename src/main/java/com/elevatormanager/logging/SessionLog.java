@@ -22,6 +22,7 @@ public final class SessionLog implements AutoCloseable {
     private final int elevatorCount;
     private final String sessionId = UUID.randomUUID().toString();
     private final TraceMailbox mailbox = new TraceMailbox();
+    private final RecentEventBuffer recent = new RecentEventBuffer();
     private final AtomicReference<Throwable> consumerFailure = new AtomicReference<>();
     private final Thread consumer = new Thread(this::consume, "simulation-log-" + sessionId);
     private boolean claimed;
@@ -59,6 +60,8 @@ public final class SessionLog implements AutoCloseable {
         if (count != elevatorCount) { throw new IllegalArgumentException("Cantidad de cabinas incompatible."); }
         claimed = true;
     }
+
+    public RecentEventBuffer recentEvents() { return recent; }
 
     public TraceMailbox mailbox() { return mailbox; }
     public String sessionId() { return sessionId; }
@@ -134,7 +137,7 @@ public final class SessionLog implements AutoCloseable {
                     + "; comando=" + event.command().map(Command::commandId).map(String::valueOf).orElse("-")
                     + "; canonica=" + event.canonicalRequestId().map(UUID::toString).orElse("-")
                     + "; detalle=" + event.detail();
-            publish(factory.loggerFor(event.elevatorId()), item.at(), level, text,
+            publish(factory.loggerFor(event.elevatorId()), "Elevador " + event.elevatorId(), item.at(), level, text,
                     event.type() == com.elevatormanager.simulation.ExecutionEvent.Type.WORKER_FAILED ? item.failure() : null);
         } else if (entry instanceof TraceMailbox.Decision item) {
             var result = item.result();
@@ -145,7 +148,7 @@ public final class SessionLog implements AutoCloseable {
                     + "; cabina=" + result.command().map(Command::elevatorId).map(String::valueOf).orElse("-")
                     + "; comando=" + result.command().map(Command::commandId).map(String::valueOf).orElse("-")
                     + "; productor=" + result.processedBy() + "; detalle=" + result.detail();
-            publish(factory.managerLogger(), item.at(), result.outcome()
+            publish(factory.managerLogger(), "Manejador", item.at(), result.outcome()
                     == com.elevatormanager.dispatch.ManagerWorker.Outcome.REJECTED ? Level.WARNING : Level.INFO, text, null);
         } else if (entry instanceof TraceMailbox.CallUpdate item) {
             var call = item.call();
@@ -155,18 +158,21 @@ public final class SessionLog implements AutoCloseable {
                     + "; cabina=" + call.command().map(Command::elevatorId).map(String::valueOf).orElse("-")
                     + "; comando=" + call.command().map(Command::commandId).map(String::valueOf).orElse("-")
                     + "; intentos=" + call.attempts() + "; detalle=" + call.detail();
-            publish(factory.managerLogger(), item.at(), Level.INFO, text, null);
+            publish(factory.managerLogger(), "Manejador", item.at(), Level.INFO, text, null);
         } else if (entry instanceof TraceMailbox.ManagerState item) {
-            publish(factory.managerLogger(), item.at(), item.failure() == null ? Level.INFO : Level.SEVERE,
+            publish(factory.managerLogger(), "Manejador", item.at(), item.failure() == null ? Level.INFO : Level.SEVERE,
                     "evento=" + item.state() + "; secuencia=" + item.sequence() + "; epoca=" + item.epoch(), item.failure());
         }
     }
 
-    private void publish(Logger logger, Instant at, Level level, String message, Throwable error) {
+    private void publish(Logger logger, String actor, Instant at, Level level, String message, Throwable error) {
         var record = new LogRecord(level, "sesion=" + sessionId + "; " + message);
         record.setInstant(at);
         record.setThrown(error);
         logger.log(record);
+        // La copia visual se limita después de enviar el registro íntegro a sus handlers.
+        recent.append(at, actor, level.getName(), record.getMessage()
+                + (error == null ? "" : " | " + error.getClass().getSimpleName() + ": " + error.getMessage()));
     }
 
     /** Sella después de los actores; el marcador FIFO permite drenar también épocas anteriores. */

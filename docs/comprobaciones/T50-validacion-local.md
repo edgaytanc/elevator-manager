@@ -1,5 +1,7 @@
 # T50 — Validación local
 
+> Cierre completo confirmado al iniciar T51: 32 pruebas específicas, 104 combinadas y 682 acumuladas, BUILD SUCCESS, commit `1d3378b` y árbol limpio. Se aportaron registros de servicio/Reset completo/cierre y capturas de RESET y atención en piso 4 con destino 8 aún encendido. El informe siguiente conserva el estado previo al cierre.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Base:** T49, commit `2b17a64`, 650 pruebas Maven satisfactorias confirmadas por David, llamadas servidas y árbol limpio.
 - **Entorno:** Linux, OpenJDK 17.0.20, headless; Maven no instalado.
