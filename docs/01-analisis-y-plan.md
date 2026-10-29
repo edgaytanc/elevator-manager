@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–7 y T47–T52 incorporadas. T52 confirmada en `6eec38e`, 754 pruebas Maven satisfactorias y árbol limpio. Fase 8 en curso: T53 automatizada, pendiente de Maven y aceptación nativa del recorrido completo.
+- **Estado:** fases 1–8 cerradas por confirmación de David; base T53, commit `463d302`. Fase 9 iniciada: T54 implementada y comprobada con Java 17; validación Maven en Windows pendiente.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -271,7 +271,7 @@ elevator-manager/
 - [x] **T50 — Crear paneles y botones internos de cabina.** Etiqueta: BASE. Mostrar por elevador piso, dirección, estado, destinos encendidos y llamadas externas asignadas con sentido. **Aceptación:** los paneles se generan para N y P configurables y las luces se apagan al atenderse, no al asignarse.
 - [x] **T51 — Agregar visor de eventos y adaptación de tamaño.** Etiqueta: BASE. Mostrar registros recientes, desplazamiento para muchas cabinas y límites de memoria del visor. **Aceptación:** los logs completos permanecen en archivos y la interfaz puede inspeccionar cabinas fuera del área inicial.
 - [x] **T52 — Garantizar actualización segura en EDT.** Etiqueta: BASE. Usar snapshots/eventos y limitar refrescos; sacar esperas, lectura y cierre del hilo gráfico. **Aceptación:** la ventana responde mientras varias cabinas se mueven o se carga un archivo grande y no se modifican componentes desde trabajadores.
-- [ ] **T53 — Validar el recorrido completo desde GUI.** Etiqueta: CALIDAD. Configurar, iniciar, llamar, seleccionar destino, detener, continuar, resetear e importar. **Aceptación:** todo el alcance base es ejecutable por controles gráficos sin editar código ni depender de comandos de terminal durante el uso.
+- [x] **T53 — Validar el recorrido completo desde GUI.** Etiqueta: CALIDAD. Configurar, iniciar, llamar, seleccionar destino, detener, continuar, resetear e importar. **Aceptación:** todo el alcance base es ejecutable por controles gráficos sin editar código ni depender de comandos de terminal durante el uso.
 
 ### Fase 9 — Implementar pausa y reanudación, extra 1
 
@@ -557,4 +557,9 @@ UiSnapshotPump captura y agrupa llamadas activas fuera del EDT, con una sola tar
 
 ## Avance T53 — Recorrido completo desde GUI
 
-Se añaden diez escenarios integrados por widgets Swing reales, sin invocar operaciones de negocio directamente en el controlador. Se prueban recorridos con una/dos cabinas, formulario inválido y corrección, P=1, conservación de lote ante cancelar/error, restricciones por estado, Reset con solicitudes, cabina oculta/página 25, visor y archivos, cierre durante movimiento. Se incorpora el ejemplo 23 y un acta nativa reproducible. No se requieren cambios de producción. Se esperan 10 pruebas específicas, 186 de interfaz y 764 totales. Ver [implementación](implementacion/T53-recorrido-completo-gui.md), [código completo](implementacion/T53-codigo-completo.md), [validación local](comprobaciones/T53-validacion-local.md) y [recorrido visual](comprobaciones/T53-recorrido-gui.md). T53 y fase 8 pendientes de confirmación del usuario; T54 no iniciada.
+Se añaden diez escenarios integrados por widgets Swing reales, sin invocar operaciones de negocio directamente en el controlador. Se prueban recorridos con una/dos cabinas, formulario inválido y corrección, P=1, conservación de lote ante cancelar/error, restricciones por estado, Reset con solicitudes, cabina oculta/página 25, visor y archivos, cierre durante movimiento. Se incorpora el ejemplo 23 y un acta nativa reproducible. No se requieren cambios de producción. Se esperan 10 pruebas específicas, 186 de interfaz y 764 totales. Ver [implementación](implementacion/T53-recorrido-completo-gui.md), [código completo](implementacion/T53-codigo-completo.md), [validación local](comprobaciones/T53-validacion-local.md) y [recorrido visual](comprobaciones/T53-recorrido-gui.md). David confirma el cierre de T53 y de la fase 8 al iniciar este chat; base recibida en el commit `463d302`. Las actas T53 conservan su redacción histórica de entrega.
+
+
+## Avance T54 — Control temporal pausable
+
+Se incorpora `simulation.time.PausableClock`, reloj monotónico de tiempo activo con condiciones, espera interrumpible y cierre que despierta a todos los consumidores. Pausa y reanudación conservan el tiempo acumulado y no contabilizan el intervalo pausado. `awaitElapsed` permite retomar el presupuesto original tras una interrupción. Diecisiete escenarios comprueban duraciones, pausa/reanudación repetidas, desbordamiento del contador de la fuente, varios hilos, interrupciones, cierre y uso con movimiento/parada reales de ElevatorState. El reloj es una base independiente: la conexión a ManagerWorker/ElevatorWorker y el reconocimiento de pausa global se desarrollan en T55; los controles Swing y sus prioridades en T56. Las marcas del nuevo reloj son lógicas y no se deben mezclar con nanoTime directo. Ver [implementación](implementacion/T54-control-temporal-pausable.md), [código completo](implementacion/T54-codigo-completo.md) y [validación](comprobaciones/T54-validacion-local.md). T54 queda implementada, pendiente de validación Maven por David; no se marca la tarjeta como cerrada todavía. Se esperan 17 pruebas específicas y 781 totales.
