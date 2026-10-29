@@ -9,6 +9,7 @@ import java.awt.Insets;
 import java.util.EnumMap;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -27,8 +28,14 @@ public final class ConfigurationPanel extends JPanel {
     private final JLabel status = new JLabel("Ingresa los parámetros de la simulación.");
     private Optional<SimulationConfig> configuration = Optional.empty();
 
-    public ConfigurationPanel() {
+    private final Consumer<SimulationConfig> onConfirmed;
+    private boolean editable = true;
+
+    public ConfigurationPanel() { this(config -> { }); }
+
+    public ConfigurationPanel(Consumer<SimulationConfig> onConfirmed) {
         requireEdt();
+        this.onConfirmed = Objects.requireNonNull(onConfirmed, "onConfirmed");
         setLayout(new GridBagLayout());
         setBorder(BorderFactory.createTitledBorder("Configuración de la simulación"));
         addField(Field.ELEVATORS, "Cantidad de elevadores (N)", 0);
@@ -85,6 +92,7 @@ public final class ConfigurationPanel extends JPanel {
     /** Revalida al confirmar; un borrador inválido nunca entrega una configuración. */
     public Optional<SimulationConfig> validateConfiguration() {
         requireEdt();
+        if (!editable) { return configuration; }
         var diagnostics = SimulationConfig.textErrors(text(Field.ELEVATORS), text(Field.FLOORS),
                 text(Field.MOVEMENT), text(Field.DWELL));
         configuration = Optional.empty();
@@ -97,6 +105,7 @@ public final class ConfigurationPanel extends JPanel {
         configuration = Optional.of(SimulationConfig.fromText(text(Field.ELEVATORS),
                 text(Field.FLOORS), text(Field.MOVEMENT), text(Field.DWELL)));
         status.setText("Configuración válida. Lista para iniciar.");
+        onConfirmed.accept(configuration.orElseThrow());
         return configuration;
     }
 
@@ -104,6 +113,14 @@ public final class ConfigurationPanel extends JPanel {
     public Optional<SimulationConfig> configuration() {
         requireEdt();
         return configuration;
+    }
+
+    /** Una sesión mantiene su configuración inmutable, incluso después de Reset. */
+    public void setEditable(boolean editable) {
+        requireEdt();
+        this.editable = editable;
+        inputs.values().forEach(input -> input.setEnabled(editable));
+        validateButton.setEnabled(editable);
     }
 
     private String text(Field field) { return inputs.get(field).getText(); }

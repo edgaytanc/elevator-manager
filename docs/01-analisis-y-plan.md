@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–7 cerradas por confirmación de David; base T46 en commit `84f6261`, 578 pruebas Maven reportadas. Fase 8 iniciada: T47 implementada y comprobada localmente, pendiente de validación Maven y revisión visual en Windows.
+- **Estado:** fases 1–7 y T47 cerradas. T47 incorporada en `5f30a29`, 594 pruebas Maven satisfactorias y revisión visual confirmada. Fase 8 en curso: T48 implementada, pendiente de Maven y revisión visual en Windows.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -265,7 +265,7 @@ elevator-manager/
 
 **Entrada:** servicios funcionales sin GUI completa. **Salida:** simulador operable desde ventanas. **Dependencias:** fase 7. **Prioridad:** P0.
 
-- [ ] **T47 — Crear formulario de configuración.** Etiqueta: BASE. Capturar N, P y ambos tiempos, mostrando errores junto a los campos. **Aceptación:** no se inicia con valores inválidos; las unidades en milisegundos son visibles.
+- [x] **T47 — Crear formulario de configuración.** Etiqueta: BASE. Capturar N, P y ambos tiempos, mostrando errores junto a los campos. **Aceptación:** no se inicia con valores inválidos; las unidades en milisegundos son visibles.
 - [ ] **T48 — Crear panel de controles del sistema.** Etiqueta: BASE. Conectar Start, Stop, Reset, cargar archivo y cerrar con indicadores de estado. **Aceptación:** cada control se habilita por la máquina de estados y muestra cuándo se está deteniendo o reseteando.
 - [ ] **T49 — Crear llamadas externas compartidas por piso.** Etiqueta: BASE. Permitir seleccionar piso y subir/bajar, sin asociar el botón de llamada a una cabina concreta. **Aceptación:** toda llamada pasa por el manejador y los botones de extremos imposibles están deshabilitados.
 - [ ] **T50 — Crear paneles y botones internos de cabina.** Etiqueta: BASE. Mostrar por elevador piso, dirección, estado, destinos encendidos y llamadas externas asignadas con sentido. **Aceptación:** los paneles se generan para N y P configurables y las luces se apagan al atenderse, no al asignarse.
@@ -528,4 +528,9 @@ Se distribuyen 22 archivos con [catálogo y configuraciones](../src/main/resourc
 
 ## 27. Avance T47 — Formulario de configuración
 
-Se inicia la fase 8 sobre T46 cerrada. ConfigurationPanel captura N, P, movimiento y espera en ms; muestra todos los errores junto a sus campos, confirma mediante botón o Enter e invalida la configuración al editar. SimulationConfig conserva sus reglas y agrega textErrors para diagnósticos simultáneos e inmutables. MainWindow muestra el formulario desde ElevatorManager y conserva el cierre asíncrono de T39. La validación no crea sesiones ni trabajadores: la conexión de Start y controles corresponde a T48. Se incorporan 16 escenarios y sus adaptadores JUnit. Ver [implementación T47](implementacion/T47-formulario-configuracion.md), [código completo](implementacion/T47-codigo-completo.md) y [validación local](comprobaciones/T47-validacion-local.md). T47 permanece pendiente de Maven y revisión visual en el equipo de David.
+Se inicia la fase 8 sobre T46 cerrada. ConfigurationPanel captura N, P, movimiento y espera en ms; muestra todos los errores junto a sus campos, confirma mediante botón o Enter e invalida la configuración al editar. SimulationConfig conserva sus reglas y agrega textErrors para diagnósticos simultáneos e inmutables. MainWindow muestra el formulario desde ElevatorManager y conserva el cierre asíncrono de T39. La validación no crea sesiones ni trabajadores: la conexión de Start y controles corresponde a T48. Se incorporan 16 escenarios y sus adaptadores JUnit. Ver [implementación T47](implementacion/T47-formulario-configuracion.md), [código completo](implementacion/T47-codigo-completo.md) y [validación local](comprobaciones/T47-validacion-local.md). David confirmó 16 pruebas específicas y 594 acumuladas sin fallos, errores u omisiones, BUILD SUCCESS, arranque EDT=true, commit `5f30a29` y árbol limpio. Las dos capturas aportadas muestran errores junto a los campos y configuración válida N=3, P=10, movimiento=15000 ms y espera=3000 ms. T47 queda cerrada; su informe local original se conserva como histórico.
+
+
+## 28. Avance T48 — Panel de controles del sistema
+
+SystemControlPanel prepara una sesión con logging fuera del EDT al confirmar T47; mantiene la configuración bloqueada y conecta Start, Stop/continuación, Reset, carga en RESET y cierre. Los controles reflejan el estado vigente y las operaciones pendientes; Stop muestra Deteniendo y Reset muestra Reseteando hasta completar sus barreras. Reset puede sustituir a Stop y cancela la aplicación visual de importaciones anteriores. La lectura usa RequestImportHandler/SimulationController, sin cambiar el parser; cancelar conserva el lote. Botón Cerrar y X comparten WindowCloseHandler y esperan apertura tardía, cierre real de actores/logs y fin del preparador. Los resultados viejos no restauran controles durante cierre o tras Reset. Se incorporan 28 escenarios con sesiones reales. Ver [implementación](implementacion/T48-panel-controles-sistema.md), [código completo](implementacion/T48-codigo-completo.md) y [validación local](comprobaciones/T48-validacion-local.md). T48 permanece pendiente de Maven y revisión visual; se esperan 622 pruebas JUnit acumuladas. T49–T53 permanecen pendientes.

@@ -1,5 +1,7 @@
 # T47 — Crear formulario de configuración
 
+> Cierre confirmado al iniciar T48: 16 pruebas específicas y 594 acumuladas, BUILD SUCCESS, commit `5f30a29`, árbol limpio y capturas de validación inválida/válida. T47 queda cerrada. El informe siguiente conserva el estado de su entrega original.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 8 — Construir la interfaz gráfica obligatoria.
 - **Base:** T46, commit `84f6261`; fases 1–7 cerradas por David, 578 pruebas acumuladas reportadas.

@@ -1,5 +1,7 @@
 # T47 — Validación local
 
+> Cierre confirmado al iniciar T48: 16 pruebas específicas y 594 acumuladas, BUILD SUCCESS, commit `5f30a29`, árbol limpio y capturas de validación inválida/válida. T47 queda cerrada. El informe siguiente conserva el estado de su entrega original.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Base:** T46, commit `84f6261` del proyecto adjunto; 578 pruebas Maven reportadas anteriormente. David confirmó cerradas las fases 1–7.
 - **Entorno:** Linux, OpenJDK 17.0.20, headless; Maven no instalado.
