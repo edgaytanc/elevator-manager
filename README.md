@@ -1,6 +1,6 @@
 # Elevator Manager
 
-Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T48 — panel de controles del sistema.** Fases 1–7 y T47 cerradas; base validada T47, commit `5f30a29`, 594 pruebas satisfactorias.
+Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T49 — llamadas externas compartidas por piso.** Fases 1–7 y T47/T48 cerradas; base validada T48, commit `0bae607`, 622 pruebas satisfactorias.
 
 El motor ya dispone de trabajadores independientes por elevador, manejador con hilo propio, solicitudes con herencia real, Stop/continuación, Reset, cierre asíncrono, logs e importación validada en RESET. El formulario de entrada captura N, P y ambos tiempos en milisegundos. T48 conecta preparación de sesión, Start, Stop/continuación, Reset, carga de archivos en RESET y cierre con confirmación real.
 
@@ -17,12 +17,12 @@ El motor ya dispone de trabajadores independientes por elevador, manejador con h
 El ZIP contiene el proyecto fuente completo con rutas relativas a la raíz Maven, sin .git, target ni logs generados. Extraer sobre la raíz de elevator-manager, conservando el repositorio local. Los archivos pom.xml, README.md, src y docs deben quedar al mismo nivel.
 
 ```powershell
-mvn "-Dtest=SystemControlsTest,ConfigurationFormTest" test
+mvn "-Dtest=HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
 mvn clean verify
 java -jar .\target\elevator-manager-0.1.0-SNAPSHOT.jar
 ```
 
-T48 agrega 28 pruebas. Se esperan 28 específicas de SystemControlsTest, 44 junto al formulario y 622 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
+T49 agrega 28 pruebas. Se esperan 28 específicas de HallCallsTest, 72 junto a controles/formulario y 650 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
 
 ## Formulario actual
 
@@ -34,7 +34,11 @@ T48 agrega 28 pruebas. Se esperan 28 específicas de SystemControlsTest, 44 junt
 6. Start inicia o continúa desde STOPPED. Stop conserva trabajo; Reset limpia y retorna físicamente al piso 1.
 7. Cerrar con **Cerrar** o X; espera actores, lectura y logs antes de devolver el prompt.
 
-Validar prepara la sesión, pero solo Start habilita la ejecución normal. Reset puede iniciar los trabajadores necesarios para confirmar limpieza y retorno sin admitir trabajo nuevo. Las llamadas externas y paneles internos se incorporarán en T49/T50; actualmente se puede generar movimiento importando un lote y pulsando Start.
+Validar prepara la sesión, pero solo Start habilita la ejecución normal. Reset puede iniciar los trabajadores necesarios para confirmar limpieza y retorno sin admitir trabajo nuevo. Las llamadas externas ya se ingresan en el panel compartido: seleccionar piso y pulsar Subir/Bajar mientras RUNNING. Los paneles y destinos internos se incorporarán en T50. También se puede generar movimiento importando un lote y pulsando Start.
+
+## Llamadas externas
+
+El selector está limitado a 1..P; al escribir un piso, confirmar con Enter. Subir está deshabilitado en P y Bajar en 1; con P=1 ambos están deshabilitados. Los botones solo admiten llamadas en RUNNING. Cada llamada pasa por el manejador: la interfaz no elige cabina ni modifica agendas. Repetir una llamada activa utiliza la deduplicación existente. El mensaje de envío no confirma atención; la atención real se registra en logs. El seguimiento visual de cabinas y solicitudes corresponde a T50/T51.
 
 ## Logs de la sesión
 
@@ -43,6 +47,9 @@ Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `ele
 ## Documentación
 
 - [Plan y estado de tareas](docs/01-analisis-y-plan.md).
+- [Implementación, incorporación y prueba visual T49](docs/implementacion/T49-llamadas-externas-compartidas.md).
+- [Código completo T49](docs/implementacion/T49-codigo-completo.md).
+- [Validación local T49](docs/comprobaciones/T49-validacion-local.md).
 - [Implementación, incorporación y prueba visual T48](docs/implementacion/T48-panel-controles-sistema.md).
 - [Código completo T48](docs/implementacion/T48-codigo-completo.md).
 - [Validación local T48](docs/comprobaciones/T48-validacion-local.md).

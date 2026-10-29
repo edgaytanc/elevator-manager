@@ -1,5 +1,7 @@
 # T48 — Validación local
 
+> Cierre funcional confirmado al iniciar T49: 28 pruebas específicas, 44 combinadas con T47 y 622 acumuladas, BUILD SUCCESS, commit `0bae607`, registros de Stop/continuación, dos retornos Reset 1/UP y cierre con retorno al prompt. El informe siguiente conserva su estado original previo al cierre.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Base:** T47, commit `5f30a29`, 594 pruebas Maven y capturas confirmadas por David.
 - **Entorno:** Linux, OpenJDK 17.0.20, headless; Maven no instalado.

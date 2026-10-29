@@ -26,7 +26,7 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
-/** T48: composición de sesión y controles; ningún get/join, lectura o apertura en EDT. */
+/** T49: controles de sesión y llamadas externas; ningún get/join, lectura o apertura en EDT. */
 public final class SystemControlPanel extends JPanel {
     private static final long serialVersionUID = 1L;
     public enum Action { START, STOP, RESET, LOAD, CLOSE }
@@ -34,6 +34,7 @@ public final class SystemControlPanel extends JPanel {
         SimulationController open(SimulationConfig config) throws Exception;
     }
     private final ConfigurationPanel configuration;
+    private final HallCallPanel hallCalls;
     private final EnumMap<Action, JButton> buttons = new EnumMap<>(Action.class);
     private final JLabel stateLabel = new JLabel();
     private final JTextArea detail = new JTextArea(4, 54);
@@ -63,7 +64,11 @@ public final class SystemControlPanel extends JPanel {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         configuration = new ConfigurationPanel(this::prepareSession);
-        add(new JScrollPane(configuration), BorderLayout.CENTER);
+        hallCalls = new HallCallPanel();
+        var workspace = new JPanel(new BorderLayout(8, 8));
+        workspace.add(new JScrollPane(configuration), BorderLayout.CENTER);
+        workspace.add(hallCalls, BorderLayout.SOUTH);
+        add(workspace, BorderLayout.CENTER);
         var controls = new JPanel(new BorderLayout(6, 6));
         var actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
         String[] titles = {"Start", "Stop", "Reset", "Cargar archivo", "Cerrar"};
@@ -126,6 +131,7 @@ public final class SystemControlPanel extends JPanel {
                 configuration.setEditable(true);
                 message("No se pudo preparar la sesión: " + cause(error));
             } else {
+                hallCalls.bind(session);
                 message("Sesión preparada en RESET. Puedes cargar un archivo o pulsar Start.");
             }
             updateView();
@@ -252,6 +258,7 @@ public final class SystemControlPanel extends JPanel {
         SimulationState state = controller == null ? null : controller.state();
         boolean usable = controller != null && !preparing && !closing && !terminal;
         boolean idle = pending == null;
+        hallCalls.refresh(usable && idle && !loading);
         buttons.get(Action.START).setEnabled(usable && idle && !loading
                 && (state == SimulationState.RESET || state == SimulationState.STOPPED));
         buttons.get(Action.STOP).setEnabled(usable && idle && state == SimulationState.RUNNING);
@@ -285,6 +292,7 @@ public final class SystemControlPanel extends JPanel {
     }
 
     public Optional<SimulationController> controller() { requireEdt(); return Optional.ofNullable(controller); }
+    HallCallPanel hallCallPanel() { requireEdt(); return hallCalls; }
     ConfigurationPanel configurationPanel() { requireEdt(); return configuration; }
     JButton button(Action action) { requireEdt(); return buttons.get(action); }
     String stateText() { requireEdt(); return stateLabel.getText(); }

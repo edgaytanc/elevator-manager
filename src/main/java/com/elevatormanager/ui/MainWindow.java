@@ -53,7 +53,7 @@ public final class MainWindow {
         });
         frame.add(new JLabel("Elevator Manager — Simulador de elevadores", SwingConstants.CENTER), BorderLayout.NORTH);
         frame.add(controls, BorderLayout.CENTER);
-        frame.setMinimumSize(new Dimension(800, 650));
+        frame.setMinimumSize(new Dimension(820, 760));
         frame.pack();
         frame.setLocationRelativeTo(null);
     }
