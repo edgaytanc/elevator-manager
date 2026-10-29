@@ -1,6 +1,7 @@
 package com.elevatormanager.simulation;
 
 import com.elevatormanager.logging.TraceMailbox;
+import com.elevatormanager.simulation.time.PauseCoordinator;
 import com.elevatormanager.model.ElevatorSnapshot;
 import com.elevatormanager.model.ElevatorPhase;
 import com.elevatormanager.model.ElevatorState;
@@ -48,6 +49,8 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private final TraceMailbox trace;
+    private final PauseCoordinator pause; // null: actor independiente, nanoTime directo.
+    private boolean pauseView;
     private final ElevatorState state;
     private final CommandLedger ledger;
     private final ReentrantLock lock = new ReentrantLock();
@@ -80,10 +83,17 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     public ElevatorWorker(int id, SimulationConfig config, long epoch, TraceMailbox trace) {
+        this(id, config, epoch, trace, null);
+    }
+
+    /** Sesión coordinada: todos los actores deben compartir exactamente esta barrera. */
+    public ElevatorWorker(int id, SimulationConfig config, long epoch, TraceMailbox trace,
+            PauseCoordinator pause) {
+        this.pause = pause;
         this.trace = Objects.requireNonNull(trace, "trace");
         state = new ElevatorState(id, config, epoch);
         ledger = new CommandLedger(state);
-        published = new AtomicReference<>(capture(System.nanoTime()));
+        published = new AtomicReference<>(capture(nowNanos()));
         thread = new Thread(this::runLoop, "elevator-worker-" + id);
     }
 
@@ -210,7 +220,15 @@ public final class ElevatorWorker implements AutoCloseable {
     public PlanningSnapshot planningSnapshot() { return published.get(); }
 
     private PlanningSnapshot capture(long now) {
-        return new PlanningSnapshot(state.snapshot(now),
+        ElevatorSnapshot snapshot = state.snapshot(now);
+        if (pauseView && (snapshot.phase() == ElevatorPhase.MOVING || snapshot.phase() == ElevatorPhase.DWELLING)) {
+            snapshot = new ElevatorSnapshot(snapshot.id(), snapshot.config(), snapshot.epoch(), snapshot.revision(),
+                    snapshot.currentFloor(), snapshot.nextFloor(), snapshot.direction(), ElevatorPhase.HELD,
+                    Optional.of(snapshot.phase()), Optional.of(ElevatorSnapshot.HoldReason.PAUSE), snapshot.mode(),
+                    snapshot.phaseDurationNanos(), snapshot.remainingNanos(), snapshot.referenceNanos(),
+                    snapshot.committedFloor(), snapshot.cabinRequests(), snapshot.hallRequests());
+        }
+        return new PlanningSnapshot(snapshot,
                 state.getPendingRequestsInAdmissionOrder(), completedSweep);
     }
     public Lifecycle lifecycle() { return lifecycle; }
@@ -262,9 +280,28 @@ public final class ElevatorWorker implements AutoCloseable {
         return !thread.isAlive();
     }
 
+    /** Señal breve: despierta espera de tramo, parada o reposo para llegar al checkpoint. */
+    public void wakeForPause() {
+        lock.lock();
+        try { available.signalAll(); }
+        finally { lock.unlock(); }
+    }
+
+    private long nowNanos() { return pause == null ? System.nanoTime() : pause.nowNanos(); }
+
+    private void publishPauseView(boolean value) {
+        lock.lock();
+        try {
+            pauseView = value;
+            published.set(capture(nowNanos()));
+        } finally { lock.unlock(); }
+    }
+
     private void runLoop() {
         try {
             while (true) {
+                if (pause != null && !pause.checkpoint(state.getId(),
+                        () -> publishPauseView(true), () -> publishPauseView(false))) { break; }
                 Result result = null;
                 CompletableFuture<Void> stoppedAck = null;
                 List<Runnable> deferred = new ArrayList<>();
@@ -272,7 +309,9 @@ public final class ElevatorWorker implements AutoCloseable {
                 lock.lockInterruptibly();
                 try {
                     if (lifecycle != Lifecycle.RUNNING) { break; }
-                    long now = System.nanoTime();
+                    // Cierra la carrera entre checkpoint y adquisición del lock del actor.
+                    if (pause != null && pause.isRequested()) { continue; }
+                    long now = nowNanos();
                     if (!resetInbox.isEmpty()) {
                         processReset(resetInbox.removeFirst(), now, deferred);
                     } else if (state.isResetting()) {
@@ -328,10 +367,10 @@ public final class ElevatorWorker implements AutoCloseable {
                         continueWork(now, notifications);
                     } else if (!inbox.isEmpty()) {
                         result = admit(inbox.removeFirst());
-                        continueWork(System.nanoTime(), notifications);
+                        continueWork(nowNanos(), notifications);
                     } else if (state.getPhase() == ElevatorPhase.MOVING
                             || state.getPhase() == ElevatorPhase.DWELLING) {
-                        long remaining = state.phaseRemainingNanos(System.nanoTime());
+                        long remaining = state.phaseRemainingNanos(nowNanos());
                         if (remaining > 0) { available.awaitNanos(remaining); }
                     } else {
                         available.await();
@@ -351,6 +390,7 @@ public final class ElevatorWorker implements AutoCloseable {
         } catch (RuntimeException | Error exception) {
             failure = exception;
         } finally {
+            if (pause != null) { pause.participantTerminated(state.getId(), failure); }
             List<Command> abandoned;
             List<ResetTicket> abandonedResets;
             lock.lock();
@@ -365,16 +405,16 @@ public final class ElevatorWorker implements AutoCloseable {
             }
             for (Command command : abandoned) {
                 Result rejected = new Result(command, Outcome.REJECTED, "Trabajador finalizado.");
-                emitAdmission(rejected, System.nanoTime());
+                emitAdmission(rejected, nowNanos());
                 results.add(rejected);
             }
             for (ResetTicket ticket : abandonedResets) {
                 Result rejected = new Result(ticket.command(), Outcome.REJECTED, "Cabina finalizada antes de procesar reset.");
-                emitAdmission(rejected, System.nanoTime());
+                emitAdmission(rejected, nowNanos());
                 results.add(rejected);
             }
             emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
-                    : ExecutionEvent.Type.WORKER_FAILED, System.nanoTime());
+                    : ExecutionEvent.Type.WORKER_FAILED, nowNanos());
             flushEvents();
             var resetFailure = new IllegalStateException("Cabina terminada antes de completar reset.", failure);
             for (ResetTicket ticket : abandonedResets) { ticket.response().completeExceptionally(resetFailure); }
@@ -485,11 +525,11 @@ public final class ElevatorWorker implements AutoCloseable {
         if (lastReset != null && command.epoch() == lastReset.command().epoch()
                 && command.commandId() == lastReset.command().commandId()) {
             var rejected = new Result(command, Outcome.REJECTED, "ID reservado por el reset de esta época.");
-            emitAdmission(rejected, System.nanoTime());
+            emitAdmission(rejected, nowNanos());
             return rejected;
         }
         CommandLedger.Decision decision = ledger.admit(command);
-        published.set(capture(System.nanoTime()));
+        published.set(capture(nowNanos()));
         Outcome outcome = switch (decision.kind()) {
             case ADDED -> Outcome.ACCEPTED;
             case DUPLICATE -> Outcome.DUPLICATE;
@@ -497,7 +537,7 @@ public final class ElevatorWorker implements AutoCloseable {
         };
         Result result = new Result(command, outcome, decision.detail(), decision.canonicalRequestId(),
                 decision.requestStatus(), decision.replay());
-        long now = System.nanoTime();
+        long now = nowNanos();
         emitAdmission(result, now);
         emitCompletions(now);
         return result;

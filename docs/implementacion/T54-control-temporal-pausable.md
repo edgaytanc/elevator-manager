@@ -2,7 +2,7 @@
 
 - **Fecha:** 28 de octubre de 2026, Guatemala.
 - **Base:** proyecto completo recibido, T53 `463d302`; fases 1–8 cerradas por David.
-- **Estado:** implementada y validada con Java 17; Maven en Windows pendiente.
+- **Estado:** cerrada; David confirmó 17/781 pruebas Maven satisfactorias, commit `4e34f89` y árbol limpio el 29 de octubre de 2026.
 
 ## Alcance
 
@@ -45,4 +45,4 @@ El reloj no adquiere locks de los actores ni publica PAUSED. Una espera puede te
 
 Extraer el ZIP en una carpeta temporal y copiar su contenido elevator-manager sobre el repositorio local, conservando el .git existente. Se incluye el proyecto completo; se excluyen .git, target y logs. No se ha creado ni ejecutado ningún commit en el repositorio recibido. La modificación previa que marcaba T53 completada se conserva.
 
-Ejecutar las validaciones indicadas en el acta antes de cerrar T54. El siguiente trabajo será T55 tras confirmar esos resultados.
+Las validaciones del acta fueron confirmadas por David. T54 está cerrada y T55 continúa con la coordinación global. El contenido restante describe el alcance original de la entrega T54.

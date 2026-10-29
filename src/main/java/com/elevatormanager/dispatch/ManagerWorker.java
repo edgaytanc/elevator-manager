@@ -1,6 +1,7 @@
 package com.elevatormanager.dispatch;
 
 import com.elevatormanager.logging.TraceMailbox;
+import com.elevatormanager.simulation.time.PauseCoordinator;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
@@ -37,6 +38,7 @@ public final class ManagerWorker implements AutoCloseable {
             Optional<Command.Pickup> command, String detail, String processedBy) { }
 
     private final TraceMailbox trace;
+    private final PauseCoordinator pause; // null: actores independientes de la sesión.
     private final SimulationConfig config;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
@@ -78,6 +80,14 @@ public final class ManagerWorker implements AutoCloseable {
 
     public ManagerWorker(SimulationConfig config, long epoch,
             List<ElevatorWorker> elevators, LongSupplier commandIds, TraceMailbox trace) {
+        this(config, epoch, elevators, commandIds, trace, null);
+    }
+
+    /** Dominio temporal compartido con las cabinas de esta sesión. */
+    public ManagerWorker(SimulationConfig config, long epoch,
+            List<ElevatorWorker> elevators, LongSupplier commandIds, TraceMailbox trace,
+            PauseCoordinator pause) {
+        this.pause = pause;
         this.trace = Objects.requireNonNull(trace, "trace");
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
@@ -301,12 +311,18 @@ public final class ManagerWorker implements AutoCloseable {
         return Optional.ofNullable(updates.poll(nanos, TimeUnit.NANOSECONDS));
     }
 
+    /** El wake queda en cola si el actor aún no está esperando. */
+    public void wakeForPause() { mailbox.wake(); }
+
+    private long nowNanos() { return pause == null ? System.nanoTime() : pause.nowNanos(); }
+
     private void runLoop() {
         HallRequest inFlight = null;
-        long lastRetry = System.nanoTime();
+        long lastRetry = nowNanos();
         try {
             trace.managerState(epoch, "MANAGER_STARTED", null);
             while (lifecycle == Lifecycle.RUNNING) {
+                if (pause != null && !pause.checkpoint(0, () -> { }, () -> { })) { break; }
                 if (!awaitDispatchPermission()) { break; }
                 boolean hadEvents = false;
                 for (int i = 0; i < 256; i++) {
@@ -314,7 +330,7 @@ public final class ManagerWorker implements AutoCloseable {
                     if (event.isEmpty()) { break; }
                     ledger.onEvent(event.orElseThrow()); publish(); hadEvents = true;
                 }
-                long now = System.nanoTime();
+                long now = nowNanos();
                 if (hadEvents || now - lastRetry >= RETRY_NANOS) {
                     var pending = ledger.pending();
                     int count = Math.min(16, pending.size());
@@ -323,7 +339,7 @@ public final class ManagerWorker implements AutoCloseable {
                         dispatch(request); publish();
                     }
                     if (!pending.isEmpty()) { retryCursor = (retryCursor + count) % pending.size(); }
-                    lastRetry = System.nanoTime();
+                    lastRetry = nowNanos();
                 }
                 lock.lockInterruptibly();
                 try {
@@ -352,7 +368,8 @@ public final class ManagerWorker implements AutoCloseable {
                 // Si llega después de esta lectura, su wake permanece en la cola.
                 lock.lockInterruptibly();
                 try {
-                    if (stopRequested || !resetInbox.isEmpty() || lifecycle != Lifecycle.RUNNING) { continue; }
+                    if (stopRequested || !resetInbox.isEmpty() || lifecycle != Lifecycle.RUNNING
+                            || (pause != null && pause.isRequested())) { continue; }
                 } finally { lock.unlock(); }
                 // Los eventos despiertan por cola; el temporizador solo reintenta recibidas.
                 var event = ledger.pending().isEmpty()
@@ -364,6 +381,7 @@ public final class ManagerWorker implements AutoCloseable {
         } catch (RuntimeException | Error exception) {
             failure = exception;
         } finally {
+            if (pause != null) { pause.participantTerminated(0, failure); }
             for (var elevator : elevators) { elevator.unsubscribeEvents(mailbox); }
             if (inFlight != null) {
                 results.add(result(inFlight, Outcome.CANCELLED, Optional.empty(),
@@ -422,7 +440,7 @@ public final class ManagerWorker implements AutoCloseable {
             return result(request, Outcome.REJECTED, Optional.empty(), validation.errors().toString());
         }
         var initial = captureCandidates();
-        if (selector.rank(config, request, eligibleCandidates(request, initial), System.nanoTime()).choices().isEmpty()) {
+        if (selector.rank(config, request, eligibleCandidates(request, initial), nowNanos()).choices().isEmpty()) {
             return pending(request, "Conservada: no hay cabinas disponibles, confirmadas o estimables para despachar.");
         }
         long commandId = commandIds.getAsLong();
@@ -432,7 +450,7 @@ public final class ManagerWorker implements AutoCloseable {
         // El generador ya terminó: todos los costos siguientes usan un instante nuevo.
         for (int attempt = 0; attempt < MAX_SELECTION_ATTEMPTS; attempt++) {
             var candidates = captureCandidates();
-            var ranking = selector.rank(config, request, eligibleCandidates(request, candidates), System.nanoTime());
+            var ranking = selector.rank(config, request, eligibleCandidates(request, candidates), nowNanos());
             if (ranking.choices().isEmpty()) {
                 return pending(request, "Conservada: no hay cabinas disponibles, confirmadas o estimables para despachar.");
             }

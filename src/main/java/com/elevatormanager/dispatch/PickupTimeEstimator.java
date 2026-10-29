@@ -40,7 +40,7 @@ public final class PickupTimeEstimator {
     }
 
     /**
-     * observedAtNanos usa el mismo nanoTime de la JVM. Solo descuenta edad de la
+     * observedAtNanos debe usar el mismo reloj activo que el snapshot. Solo descuenta edad de la
      * fase capturada; no declara como reales llegadas todavía no publicadas.
      */
     public Estimate estimate(PlanningSnapshot planning, HallRequest request, long observedAtNanos) {

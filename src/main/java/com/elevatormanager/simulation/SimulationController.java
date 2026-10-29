@@ -1,6 +1,7 @@
 package com.elevatormanager.simulation;
 
 import com.elevatormanager.io.BatchDiagnostic;
+import com.elevatormanager.simulation.time.PauseCoordinator;
 import com.elevatormanager.io.BatchReadResult;
 import com.elevatormanager.io.RequestFileReader;
 import java.nio.file.Path;
@@ -74,6 +75,7 @@ public final class SimulationController implements AutoCloseable {
     private volatile Optional<BatchDispatchReport> lastBatchDispatch = Optional.empty();
     private final Optional<SessionLog> sessionLog;
     private final SimulationConfig config;
+    private final PauseCoordinator pauseCoordinator;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
     private final ManagerWorker manager;
@@ -92,6 +94,7 @@ public final class SimulationController implements AutoCloseable {
     private final Thread shutdownThread = new Thread(this::finishClose, "simulation-shutdown");
     private volatile SimulationState state = SimulationState.RESET;
     private volatile Throwable failure;
+    private CompletableFuture<Result> pauseCompletion;
     private CompletableFuture<Result> stopCompletion;
     private CompletableFuture<Result> resetCompletion;
     private boolean workersStarted;
@@ -117,11 +120,12 @@ public final class SimulationController implements AutoCloseable {
         this.config = Objects.requireNonNull(config, "config");
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
+        pauseCoordinator = new PauseCoordinator(Math.addExact(config.elevatorCount(), 1));
         TraceMailbox trace = sessionLog.map(SessionLog::mailbox).orElse(TraceMailbox.disabled());
         elevators = java.util.stream.IntStream.rangeClosed(1, config.elevatorCount())
-                .mapToObj(id -> new ElevatorWorker(id, config, epoch, trace)).toList();
+                .mapToObj(id -> new ElevatorWorker(id, config, epoch, trace, pauseCoordinator)).toList();
         elevators.forEach(e -> e.subscribeEvents(events));
-        manager = new ManagerWorker(config, epoch, elevators, this::nextCommandId, trace);
+        manager = new ManagerWorker(config, epoch, elevators, this::nextCommandId, trace, pauseCoordinator);
         sessionLog.ifPresent(log -> {
             log.claim(config.elevatorCount());
             ownedResources.add(log);
@@ -208,6 +212,61 @@ public final class SimulationController implements AutoCloseable {
                 beginClose();
                 throw exception;
             }
+        });
+    }
+
+    /** Progreso de la barrera; leerlo no espera ni consume eventos. */
+    public PauseCoordinator.Status pauseStatus() { return pauseCoordinator.status(); }
+
+    /** RUNNING -> PAUSING -> PAUSED. El resultado público no cancela la operación privada. */
+    public CompletableFuture<Result> pause() {
+        return scheduleAsync(() -> {
+            if (state == SimulationState.PAUSING) { return pauseCompletion; }
+            if (state == SimulationState.PAUSED) {
+                return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "La sesión ya está pausada."));
+            }
+            if (state != SimulationState.RUNNING) {
+                return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Pausa no permitida en " + state));
+            }
+            state = SimulationState.PAUSING;
+            var completion = new CompletableFuture<Result>();
+            pauseCompletion = completion;
+            var barrier = pauseCoordinator.requestPause();
+            manager.wakeForPause();
+            elevators.forEach(ElevatorWorker::wakeForPause);
+            barrier.whenComplete((ignored, error) -> schedule(() -> {
+                if (state != SimulationState.PAUSING || pauseCompletion != completion || completion.isDone()) {
+                    return result(Outcome.UNCHANGED, "Confirmación de pausa fuera de vigencia.");
+                }
+                if (error != null || manager.lifecycle() != ManagerWorker.Lifecycle.RUNNING
+                        || elevators.stream().anyMatch(e -> e.lifecycle() != ElevatorWorker.Lifecycle.RUNNING)) {
+                    Throwable cause = error != null ? error : new IllegalStateException("Participante de pausa no disponible.");
+                    failure = cause;
+                    completion.completeExceptionally(cause);
+                    beginClose();
+                } else {
+                    state = SimulationState.PAUSED;
+                    completion.complete(result(Outcome.APPLIED, "Manejador y todas las cabinas reconocieron la pausa."));
+                }
+                return result(Outcome.UNCHANGED, "Barrera de pausa procesada.");
+            }));
+            return completion;
+        });
+    }
+
+    /** PAUSED -> RUNNING; libera a todos con el mismo reloj y sin reenviar comandos. */
+    public CompletableFuture<Result> resume() {
+        return schedule(() -> {
+            if (state == SimulationState.RUNNING) { return result(Outcome.UNCHANGED, "La sesión ya está activa."); }
+            if (state != SimulationState.PAUSED) { return result(Outcome.REJECTED, "Reanudar requiere PAUSED: " + state); }
+            state = SimulationState.RUNNING;
+            if (!pauseCoordinator.resume()) {
+                var error = new IllegalStateException("Barrera de reanudación incompleta.");
+                failure = error;
+                beginClose();
+                throw error;
+            }
+            return result(Outcome.APPLIED, "Mismos actores, comandos y tiempo restante; ejecución reanudada.");
         });
     }
 
@@ -601,6 +660,11 @@ public final class SimulationController implements AutoCloseable {
         if (stopCompletion != null && !stopCompletion.isDone()) {
             stopCompletion.complete(result(Outcome.REJECTED, "Stop interrumpido por cierre."));
         }
+        if (pauseCompletion != null && !pauseCompletion.isDone()) {
+            pauseCompletion.complete(result(Outcome.REJECTED, "Pausa interrumpida por cierre."));
+        }
+        // Cierre primero la compuerta: ningún checkpoint liberado admite más servicio.
+        pauseCoordinator.close();
         manager.close();
         elevators.forEach(ElevatorWorker::close);
         coordinator.shutdown();

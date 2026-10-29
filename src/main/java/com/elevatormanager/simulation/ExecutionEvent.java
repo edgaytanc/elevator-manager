@@ -8,7 +8,8 @@ import java.util.UUID;
 
 /** Hecho inmutable capturado por el actor, antes de ejecutar la siguiente transición.
  * sequence ordena eventos de una cabina; revision ordena cambios de su modelo.
- * referenceNanos pertenece al reloj monotónico de esta JVM, no a una fecha civil.
+ * referenceNanos pertenece al reloj activo de la sesión (nanoTime directo en actores
+ * independientes), no a una fecha civil. Comparar solo dentro del mismo dominio.
  */
 public record ExecutionEvent(long sequence, Type type, ElevatorSnapshot snapshot,
         Optional<Command> command, Optional<UUID> canonicalRequestId, String detail) {
