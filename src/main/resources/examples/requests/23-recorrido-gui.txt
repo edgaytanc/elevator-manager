@@ -1,0 +1,5 @@
+# T53: N=2, P=8. Cargar en RESET y ejecutar con Start.
+CABIN 1 8
+CABIN 2 6
+HALL 3 UP
+HALL 7 DOWN

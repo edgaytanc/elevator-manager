@@ -1,5 +1,7 @@
 # T52 — Validación local
 
+**Confirmación posterior del usuario:** 32 pruebas específicas, 176 de interfaz y 754 totales satisfactorias en Maven; commit `6eec38e`, árbol limpio. Registro nativo con Reset completo de ambas cabinas y terminación de actores. La captura confirma estado/visor; no mide fluidez. El informe de abajo conserva la evidencia local original.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Base:** T51, commit `ff29a67`, 722 pruebas Maven satisfactorias y capturas confirmadas por David.
 - **Entorno:** Linux, OpenJDK 17.0.20, headless; Maven no instalado.

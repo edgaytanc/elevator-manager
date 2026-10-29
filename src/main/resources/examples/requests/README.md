@@ -70,3 +70,7 @@ Cargar 01-minimo, cancelar otra selección y comprobar que sigue un lote de una 
 | 20-cr-aislado.txt | 19 | `a908fa1c1f16c401dd1cbd18c68698e8ad7f309643300256ab8f24cd4bce493a` |
 
 No se distribuye un archivo con permisos bloqueados: los permisos del ZIP no son una prueba portable de ACL. Los tests inyectan la denegación en el punto de apertura del lector y verifican su recuperación, sin tocar permisos del usuario. La prueba de ACL real depende del sistema y se distingue de esa evidencia en [la validación T46](../../../../../docs/comprobaciones/T46-validacion-local.md).
+
+## Recorrido T53
+
+`23-recorrido-gui.txt`: N=2, P=8. Cuatro instrucciones (CABIN 1 8, CABIN 2 6, HALL 3 UP, HALL 7 DOWN). Cargar desde GUI en RESET, comprobar lote 4 sin movimiento y pulsar Start. Ver `docs/comprobaciones/T53-recorrido-gui.md` desde la raíz del proyecto.

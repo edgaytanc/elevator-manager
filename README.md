@@ -1,6 +1,6 @@
 # Elevator Manager
 
-Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T52 — actualización segura en EDT.** Fases 1–7 y T47–T51 cerradas; base validada T51, commit `ff29a67`, 722 pruebas satisfactorias y capturas confirmadas.
+Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T53 — recorrido completo desde GUI.** T52 incorporada en `6eec38e`, con 754 pruebas Maven satisfactorias y árbol limpio. T53 añade integración del recorrido y guía de aceptación nativa.
 
 El motor ya dispone de trabajadores independientes por elevador, manejador con hilo propio, solicitudes con herencia real, Stop/continuación, Reset, cierre asíncrono, logs e importación validada en RESET. El formulario de entrada captura N, P y ambos tiempos en milisegundos. T48 conecta preparación de sesión, Start, Stop/continuación, Reset, carga de archivos en RESET y cierre con confirmación real.
 
@@ -17,12 +17,12 @@ El motor ya dispone de trabajadores independientes por elevador, manejador con h
 El ZIP contiene el proyecto fuente completo con rutas relativas a la raíz Maven, sin .git, target ni logs generados. Extraer sobre la raíz de elevator-manager, conservando el repositorio local. Los archivos pom.xml, README.md, src y docs deben quedar al mismo nivel.
 
 ```powershell
-mvn "-Dtest=EdtSafetyTest,EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
+mvn "-Dtest=GuiJourneyTest,EdtSafetyTest,EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
 mvn clean verify
 java -jar .\target\elevator-manager-0.1.0-SNAPSHOT.jar
 ```
 
-T52 agrega 32 pruebas. Se esperan 32 específicas de EdtSafetyTest, 176 junto a la interfaz anterior y 754 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
+T53 agrega 10 pruebas integradas. Se esperan 10 específicas de GuiJourneyTest, 186 junto a la interfaz anterior y 764 acumuladas. Maven y la aceptación visual T53 permanecen pendientes en Windows; el informe local distingue escenarios independientes de JUnit. Seguir el [recorrido completo desde GUI](docs/comprobaciones/T53-recorrido-gui.md), incluido el ejemplo 23 de cuatro solicitudes para N=2/P=8.
 
 ## Formulario actual
 
@@ -61,6 +61,10 @@ Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `ele
 ## Documentación
 
 - [Plan y estado de tareas](docs/01-analisis-y-plan.md).
+- [Recorrido integrado T53](docs/implementacion/T53-recorrido-completo-gui.md).
+- [Código completo T53](docs/implementacion/T53-codigo-completo.md).
+- [Validación local T53](docs/comprobaciones/T53-validacion-local.md).
+- [Acta de recorrido nativo T53](docs/comprobaciones/T53-recorrido-gui.md).
 - [Implementación y comprobación de respuesta T52](docs/implementacion/T52-actualizacion-segura-edt.md).
 - [Código completo T52](docs/implementacion/T52-codigo-completo.md).
 - [Validación local T52](docs/comprobaciones/T52-validacion-local.md).
