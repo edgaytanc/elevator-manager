@@ -42,6 +42,10 @@ public final class CabinPanel extends JPanel {
     private long epoch = -1;
     private long sequence;
     private ElevatorSnapshot latest;
+    private ElevatorSnapshot rendered;
+    private List<HallCallSnapshot> renderedAssigned = List.of();
+    private SimulationState renderedState;
+    private boolean renderedAvailable;
 
     public CabinPanel(SimulationController session, int cabinId) { this(session, cabinId, SwingUtilities::invokeLater); }
 
@@ -140,6 +144,10 @@ public final class CabinPanel extends JPanel {
                     : "Destinos bloqueados mientras el sistema está en " + session.state() + ".");
         }
         if (snapshot.epoch() == epoch && (latest == null || snapshot.revision() >= latest.revision())) { latest = snapshot; }
+        if (latest != null && latest == rendered && renderedAssigned.equals(assigned)
+                && renderedState == session.state() && renderedAvailable == available) return;
+        rendered = latest; renderedAssigned = List.copyOf(assigned);
+        renderedState = session.state(); renderedAvailable = available;
         lit.clear();
         if (latest == null) {
             location.setText("Esperando posición de la época actual...");
@@ -178,6 +186,18 @@ public final class CabinPanel extends JPanel {
         calls.forEach(call -> external.addElement("Piso " + call.floor() + " — "
                 + (call.direction() == Direction.UP ? "Subir" : "Bajar")));
         paintButtons();
+    }
+
+    /** Bloqueo inmediato: no necesita recapturar ni ordenar datos de la simulación. */
+    public void setInteractive(boolean enabled) {
+        requireEdt();
+        boolean value = enabled && session.state() == SimulationState.RUNNING && epoch == session.epoch();
+        if (available != value) {
+            available = value; ++sequence;
+            message(value ? "Selecciona un destino interno para esta cabina."
+                    : "Destinos bloqueados mientras el sistema está en " + session.state() + ".");
+            paintButtons();
+        }
     }
 
     private void paintButtons() {

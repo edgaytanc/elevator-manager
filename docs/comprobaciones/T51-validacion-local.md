@@ -1,5 +1,7 @@
 # T51 — Validación local
 
+> Cierre confirmado al iniciar T52: 40 específicas, 144 combinadas y 722 acumuladas, BUILD SUCCESS, commit `ff29a67`, árbol limpio y capturas del visor en RESET/RUNNING con 112 registros. El informe siguiente conserva el estado original de entrega.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Base:** T50, commit `1d3378b`, 682 pruebas Maven satisfactorias, ejecución y capturas confirmadas por David.
 - **Entorno:** Linux, OpenJDK 17.0.20, headless; Maven no instalado.

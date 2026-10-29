@@ -27,7 +27,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.JSplitPane;
 
-/** T51: controles, cabinas y visor reciente acotado; ningún get/join, lectura o apertura en EDT. */
+/** T52: captura asíncrona y refresco visual limitado; ningún get/join, lectura o apertura en EDT. */
 public final class SystemControlPanel extends JPanel {
     private static final long serialVersionUID = 1L;
     public enum Action { START, STOP, RESET, LOAD, CLOSE }
@@ -42,8 +42,12 @@ public final class SystemControlPanel extends JPanel {
     private final JLabel stateLabel = new JLabel();
     private final JTextArea detail = new JTextArea(2, 54);
     private final SessionOpener opener;
+    private final java.util.function.Function<SimulationController, UiSnapshotPump> pumpFactory;
     private final Supplier<Optional<Path>> selector;
     private final Timer refresh;
+    private final RefreshGate visualGate = new RefreshGate(UiSnapshotPump.INTERVAL_NANOS, System::nanoTime);
+    private UiSnapshotPump snapshotPump;
+    private Throwable reportedRefreshFailure;
     private SimulationController controller;
     private CompletableFuture<SimulationController> preparation;
     private ExecutorService preparer;
@@ -61,7 +65,13 @@ public final class SystemControlPanel extends JPanel {
 
     /** Inyección de apertura/selección; conserva controlador y actores reales en las pruebas. */
     SystemControlPanel(SessionOpener opener, Supplier<Optional<Path>> selector) {
+        this(opener, selector, UiSnapshotPump::new);
+    }
+
+    SystemControlPanel(SessionOpener opener, Supplier<Optional<Path>> selector,
+            java.util.function.Function<SimulationController, UiSnapshotPump> pumpFactory) {
         requireEdt();
+        this.pumpFactory = Objects.requireNonNull(pumpFactory, "pumpFactory");
         this.opener = Objects.requireNonNull(opener, "opener");
         this.selector = selector;
         setLayout(new BorderLayout(8, 8));
@@ -148,6 +158,8 @@ public final class SystemControlPanel extends JPanel {
             } else {
                 hallCalls.bind(session);
                 cabinDashboard.bind(session);
+                snapshotPump = Objects.requireNonNull(pumpFactory.apply(session), "snapshotPump");
+                cabinDashboard.usePump(snapshotPump); snapshotPump.request();
                 eventViewer.bind(session);
                 message("Sesión preparada en RESET. Puedes cargar un archivo o pulsar Start.");
             }
@@ -235,8 +247,10 @@ public final class SystemControlPanel extends JPanel {
         var opened = preparation == null ? CompletableFuture.<SimulationController>completedFuture(controller)
                 : preparation.handle((session, error) -> session);
         ExecutorService executor = preparer;
-        return opened.thenCompose(session -> session == null ? CompletableFuture.completedFuture(null)
-                        : session.closeAsync().thenApply(result -> (Void) null))
+        var samplerClosed = snapshotPump == null ? CompletableFuture.<Void>completedFuture(null) : snapshotPump.closeAsync();
+        var engineClosed = opened.thenCompose(session -> session == null ? CompletableFuture.completedFuture(null)
+                : session.closeAsync().thenApply(result -> (Void) null));
+        return CompletableFuture.allOf(engineClosed, samplerClosed)
                 .handleAsync((ignored, error) -> {
                     try {
                         if (executor != null) {
@@ -276,8 +290,20 @@ public final class SystemControlPanel extends JPanel {
         boolean usable = controller != null && !preparing && !closing && !terminal;
         boolean idle = pending == null;
         hallCalls.refresh(usable && idle && !loading);
-        cabinDashboard.refresh(usable && idle && !loading);
-        eventViewer.refresh();
+        cabinDashboard.setInteractive(usable && idle && !loading);
+        if (visualGate.due()) {
+            if (snapshotPump != null && !closing && !terminal) {
+                snapshotPump.request();
+                snapshotPump.failure().ifPresent(error -> {
+                    if (reportedRefreshFailure != error) {
+                        reportedRefreshFailure = error;
+                        message("No se pudo actualizar la vista: " + cause(error));
+                    }
+                });
+            }
+            cabinDashboard.refresh(usable && idle && !loading);
+            eventViewer.refresh();
+        }
         buttons.get(Action.START).setEnabled(usable && idle && !loading
                 && (state == SimulationState.RESET || state == SimulationState.STOPPED));
         buttons.get(Action.STOP).setEnabled(usable && idle && state == SimulationState.RUNNING);
@@ -311,6 +337,7 @@ public final class SystemControlPanel extends JPanel {
     }
 
     public Optional<SimulationController> controller() { requireEdt(); return Optional.ofNullable(controller); }
+    UiSnapshotPump snapshotPump() { requireEdt(); return snapshotPump; }
     EventViewerPanel eventViewer() { requireEdt(); return eventViewer; }
     CabinDashboardPanel cabinDashboard() { requireEdt(); return cabinDashboard; }
     HallCallPanel hallCallPanel() { requireEdt(); return hallCalls; }

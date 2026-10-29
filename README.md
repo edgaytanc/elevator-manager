@@ -1,6 +1,6 @@
 # Elevator Manager
 
-Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T51 — visor de eventos y adaptación de tamaño.** Fases 1–7 y T47–T50 cerradas; base validada T50, commit `1d3378b`, 682 pruebas satisfactorias y revisión visual confirmada.
+Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T52 — actualización segura en EDT.** Fases 1–7 y T47–T51 cerradas; base validada T51, commit `ff29a67`, 722 pruebas satisfactorias y capturas confirmadas.
 
 El motor ya dispone de trabajadores independientes por elevador, manejador con hilo propio, solicitudes con herencia real, Stop/continuación, Reset, cierre asíncrono, logs e importación validada en RESET. El formulario de entrada captura N, P y ambos tiempos en milisegundos. T48 conecta preparación de sesión, Start, Stop/continuación, Reset, carga de archivos en RESET y cierre con confirmación real.
 
@@ -17,12 +17,12 @@ El motor ya dispone de trabajadores independientes por elevador, manejador con h
 El ZIP contiene el proyecto fuente completo con rutas relativas a la raíz Maven, sin .git, target ni logs generados. Extraer sobre la raíz de elevator-manager, conservando el repositorio local. Los archivos pom.xml, README.md, src y docs deben quedar al mismo nivel.
 
 ```powershell
-mvn "-Dtest=EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
+mvn "-Dtest=EdtSafetyTest,EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
 mvn clean verify
 java -jar .\target\elevator-manager-0.1.0-SNAPSHOT.jar
 ```
 
-T51 agrega 40 pruebas. Se esperan 40 específicas de EventViewerTest, 144 junto a la interfaz anterior y 722 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
+T52 agrega 32 pruebas. Se esperan 32 específicas de EdtSafetyTest, 176 junto a la interfaz anterior y 754 acumuladas. Maven y la revisión visual en Windows permanecen pendientes para esta entrega; el informe local distingue los escenarios independientes de la suite JUnit.
 
 ## Formulario actual
 
@@ -50,6 +50,10 @@ El visor inferior muestra registros recientes del manejador y las cabinas. **Seg
 
 Los controles del sistema permanecen arriba. El espacio de trabajo tiene desplazamiento vertical/horizontal y un divisor permite repartir altura con el visor. La ventana inicial se ajusta al área útil de pantalla. Para inspeccionar muchas cabinas, usar el selector **Cabina** y **Ver cabina**, además de las pestañas desplazables.
 
+## Refresco y respuesta
+
+La captura/agrupación global se realiza fuera del EDT. El refresco visual tiene una cadencia máxima de 10 Hz; los botones se bloquean inmediatamente al solicitar Stop/Reset/cierre. Solo se renderiza la cabina visible, con caché de hasta tres paneles completos. Todas las cabinas siguen ejecutándose y sus pendientes se conservan en el motor al cambiar pestaña. El cierre espera al capturador además de actores, lectura y logs.
+
 ## Logs de la sesión
 
 Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `elevador1.log` ... `elevadorN.log` y `manejador.log`. La creación, lectura y liberación se realizan fuera del EDT. El área superior muestra el resultado de la última acción y el visor inferior muestra eventos recientes. Abrir/cerrar y leer archivos no ocurre en EDT.
@@ -57,6 +61,9 @@ Cada configuración confirmada abre un directorio `logs/sesion-<UUID>/` con `ele
 ## Documentación
 
 - [Plan y estado de tareas](docs/01-analisis-y-plan.md).
+- [Implementación y comprobación de respuesta T52](docs/implementacion/T52-actualizacion-segura-edt.md).
+- [Código completo T52](docs/implementacion/T52-codigo-completo.md).
+- [Validación local T52](docs/comprobaciones/T52-validacion-local.md).
 - [Implementación, incorporación y prueba visual T51](docs/implementacion/T51-visor-eventos-y-tamano.md).
 - [Código completo T51](docs/implementacion/T51-codigo-completo.md).
 - [Validación local T51](docs/comprobaciones/T51-validacion-local.md).

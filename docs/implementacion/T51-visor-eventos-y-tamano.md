@@ -1,5 +1,7 @@
 # T51 — Agregar visor de eventos y adaptación de tamaño
 
+> Cierre confirmado al iniciar T52: 40 específicas, 144 combinadas y 722 acumuladas, BUILD SUCCESS, commit `ff29a67`, árbol limpio y capturas del visor en RESET/RUNNING con 112 registros. El informe siguiente conserva el estado original de entrega.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 8 — Construir la interfaz gráfica obligatoria.
 - **Base:** T50 validada en `1d3378b`, 682 pruebas, ejecución y capturas de luces confirmadas.

@@ -144,6 +144,12 @@ public final class SimulationController implements AutoCloseable {
     }
 
     /** Copias inmutables por cabina; no representan un instante físico global único. */
+    /** Lectura O(1) de una instantánea ya publicada, sin recorrer llamadas ni cabinas. */
+    public ElevatorSnapshot snapshot(int elevatorId) {
+        if (elevatorId < 1 || elevatorId > elevators.size()) throw new IllegalArgumentException("Cabina fuera de rango.");
+        return elevators.get(elevatorId - 1).snapshot();
+    }
+
     public List<ElevatorSnapshot> snapshots() {
         return elevators.stream().map(ElevatorWorker::snapshot).toList();
     }
