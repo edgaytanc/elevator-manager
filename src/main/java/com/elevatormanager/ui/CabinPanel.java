@@ -162,7 +162,7 @@ public final class CabinPanel extends JPanel {
             case IDLE -> "En espera";
             case MOVING -> "En movimiento";
             case DWELLING -> "Parada de servicio";
-            case HELD -> "Detenida";
+            case HELD -> latest.holdReason().orElseThrow() == ElevatorSnapshot.HoldReason.PAUSE ? "En pausa" : "Detenida";
             case TERMINATED -> "Terminada";
         } + (latest.mode() == ElevatorSnapshot.Mode.RESET_RETURN ? " — Retorno por Reset" : ""));
         if (latest.phase() != ElevatorPhase.TERMINATED && session.state() != SimulationState.CLOSED) {

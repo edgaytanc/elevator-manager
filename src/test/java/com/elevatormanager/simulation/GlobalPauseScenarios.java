@@ -186,15 +186,15 @@ public final class GlobalPauseScenarios {
         }
     }
 
-    public static void pausedStopAndResetAwaitT56Policy() throws Exception {
+    public static void pausedStopAndResetUsePriorityControl() throws Exception {
         try (var rig = new Session(1, 4, 50, 30)) {
             var c = rig.controller;
             get(c.start()); get(c.pause());
-            check(get(c.stop()).outcome() == SimulationController.Outcome.REJECTED, "Stop pausado pendiente de T56");
-            check(get(c.reset()).outcome() == SimulationController.Outcome.REJECTED, "Reset pausado pendiente de T56");
-            check(c.state() == SimulationState.PAUSED && c.epoch() == 0, "Conserva contexto");
-            get(c.resume()); get(c.stop()); get(c.reset());
-            check(c.state() == SimulationState.RESET && c.epoch() == 1, "Flujo base conservado después de Resume");
+            check(get(c.stop()).outcome() == SimulationController.Outcome.APPLIED, "Stop sustituye pausa");
+            check(c.state() == SimulationState.STOPPED && c.epoch() == 0, "Stop conserva época");
+            get(c.start()); get(c.pause());
+            check(get(c.reset()).outcome() == SimulationController.Outcome.APPLIED, "Reset sustituye pausa");
+            check(c.state() == SimulationState.RESET && c.epoch() == 1, "Reset sin Resume manual");
         }
     }
 
@@ -334,7 +334,7 @@ public final class GlobalPauseScenarios {
         rapidCyclesKeepSameSessionAndActors();
         hallLedgerAndQueuedCommandsSurvivePause();
         manualRequestsAndImportsAreRejectedWhilePaused();
-        pausedStopAndResetAwaitT56Policy();
+        pausedStopAndResetUsePriorityControl();
         edtCanRequestPauseAndResumeWithoutWaiting();
         cancelledPublicFutureDoesNotStrandPause();
         simultaneousPauseRequestsShareOneGeneration();

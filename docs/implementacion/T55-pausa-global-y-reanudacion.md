@@ -3,7 +3,8 @@
 - **Fecha:** 29 de octubre de 2026, Guatemala.
 - **Base confirmada:** T54, commit `4e34f89`, 17/781 pruebas Maven satisfactorias y árbol limpio.
 - **Entrega:** proyecto completo, fuentes Java, pruebas y documentación Markdown.
-- **Estado:** implementada; validación Maven en Windows pendiente.
+- **Estado:** cerrada por David el 29 de octubre de 2026; 29/810 pruebas Maven satisfactorias, commit `dd9dc82` y árbol limpio.
+- **Nota histórica:** esta acta describe T55; T56 sustituye la política provisional de Stop/Reset durante pausa.
 
 ## Resultado
 
@@ -47,4 +48,4 @@ No se ha creado ningún commit local para simular el hash de David. El ZIP conti
 
 Se añaden 29 pruebas: 12 del coordinador y 17 de sesión. Las pruebas usan actores reales y un caso de captura retenida con latches para demostrar que la barrera no se completa antes del último reconocimiento. Se comprueban tramos y paradas parciales, conservación de identidad, llamadas, varias cabinas, cancelaciones, EDT, carreras con cierre, independencia entre sesiones y veinte ciclos rápidos sobre los mismos Thread.
 
-Consultar [el acta](../comprobaciones/T55-validacion-local.md) para resultados, tolerancias y comandos Maven. El documento [T55-codigo-completo.md](T55-codigo-completo.md) reproduce íntegras todas las fuentes Java añadidas o modificadas; el ZIP contiene además las demás fuentes previas. T55 permanece pendiente de validación local por David.
+Consultar [el acta](../comprobaciones/T55-validacion-local.md) para resultados, tolerancias y comandos Maven. El documento [T55-codigo-completo.md](T55-codigo-completo.md) reproduce íntegras todas las fuentes Java añadidas o modificadas; el ZIP contiene además las demás fuentes previas. David confirmó la validación local y el cierre de T55. Las prioridades y controles se integran en T56.

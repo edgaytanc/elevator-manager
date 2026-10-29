@@ -132,3 +132,8 @@ git commit -m "T55: coordinar pausa global y reanudacion"
 git status --short
 git log -1 --oneline
 ```
+
+
+## Cierre confirmado por David — 29 de octubre de 2026
+
+PauseCoordinatorTest y GlobalPauseTest: 29/0/0/0; mvn clean verify: 810/0/0/0. Ambos BUILD SUCCESS. Staged diff sin observaciones; commit `dd9dc82` (T55: coordinar pausa global y reanudacion); git status --short sin salida. Los mensajes ERROR_LOGGING pertenecen a pruebas de fallos inyectados. T55 queda cerrada; las instrucciones y la política descritas arriba corresponden a la entrega original. T56 habilita controles y prioridades durante pausa.

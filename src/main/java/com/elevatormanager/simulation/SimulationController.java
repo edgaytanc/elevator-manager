@@ -74,6 +74,7 @@ public final class SimulationController implements AutoCloseable {
     private volatile Optional<ImportedRequestBatch> preparedBatch = Optional.empty();
     private volatile Optional<BatchDispatchReport> lastBatchDispatch = Optional.empty();
     private final Optional<SessionLog> sessionLog;
+    private final TraceMailbox trace;
     private final SimulationConfig config;
     private final PauseCoordinator pauseCoordinator;
     private volatile long epoch;
@@ -121,7 +122,7 @@ public final class SimulationController implements AutoCloseable {
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
         pauseCoordinator = new PauseCoordinator(Math.addExact(config.elevatorCount(), 1));
-        TraceMailbox trace = sessionLog.map(SessionLog::mailbox).orElse(TraceMailbox.disabled());
+        trace = sessionLog.map(SessionLog::mailbox).orElse(TraceMailbox.disabled());
         elevators = java.util.stream.IntStream.rangeClosed(1, config.elevatorCount())
                 .mapToObj(id -> new ElevatorWorker(id, config, epoch, trace, pauseCoordinator)).toList();
         elevators.forEach(e -> e.subscribeEvents(events));
@@ -190,6 +191,7 @@ public final class SimulationController implements AutoCloseable {
                     }
                     if (!manager.resume()) { throw new IllegalStateException("Manejador no reanudable."); }
                     state = SimulationState.RUNNING;
+                    trace.managerState(epoch, "SIMULATION_RUNNING", null);
                     if (fromReset) { releasePreparedBatch(); }
                     return result(Outcome.APPLIED, "Continuación de trabajadores y pendientes existentes.");
                 } catch (RuntimeException | Error exception) {
@@ -205,6 +207,7 @@ public final class SimulationController implements AutoCloseable {
                 invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente.");
                 startWorkersOnce();
                 state = SimulationState.RUNNING;
+                trace.managerState(epoch, "SIMULATION_RUNNING", null);
                 releasePreparedBatch();
                 return result(Outcome.APPLIED, "Trabajadores iniciados una sola vez.");
             } catch (RuntimeException | Error exception) {
@@ -229,6 +232,7 @@ public final class SimulationController implements AutoCloseable {
                 return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Pausa no permitida en " + state));
             }
             state = SimulationState.PAUSING;
+            trace.managerState(epoch, "SIMULATION_PAUSING", null);
             var completion = new CompletableFuture<Result>();
             pauseCompletion = completion;
             var barrier = pauseCoordinator.requestPause();
@@ -246,6 +250,7 @@ public final class SimulationController implements AutoCloseable {
                     beginClose();
                 } else {
                     state = SimulationState.PAUSED;
+                    trace.managerState(epoch, "SIMULATION_PAUSED", null);
                     completion.complete(result(Outcome.APPLIED, "Manejador y todas las cabinas reconocieron la pausa."));
                 }
                 return result(Outcome.UNCHANGED, "Barrera de pausa procesada.");
@@ -260,12 +265,14 @@ public final class SimulationController implements AutoCloseable {
             if (state == SimulationState.RUNNING) { return result(Outcome.UNCHANGED, "La sesión ya está activa."); }
             if (state != SimulationState.PAUSED) { return result(Outcome.REJECTED, "Reanudar requiere PAUSED: " + state); }
             state = SimulationState.RUNNING;
+            trace.managerState(epoch, "SIMULATION_RUNNING", null);
             if (!pauseCoordinator.resume()) {
                 var error = new IllegalStateException("Barrera de reanudación incompleta.");
                 failure = error;
                 beginClose();
                 throw error;
             }
+            trace.managerState(epoch, "SIMULATION_RESUMED", null);
             return result(Outcome.APPLIED, "Mismos actores, comandos y tiempo restante; ejecución reanudada.");
         });
     }
@@ -277,15 +284,18 @@ public final class SimulationController implements AutoCloseable {
             if (state == SimulationState.RESET || state == SimulationState.STOPPED) {
                 return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "No hay avance que detener."));
             }
-            if (state != SimulationState.RUNNING) {
+            if (state != SimulationState.RUNNING && state != SimulationState.PAUSING && state != SimulationState.PAUSED) {
                 return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Stop no permitido en " + state));
             }
+            boolean fromPause = state == SimulationState.PAUSING || state == SimulationState.PAUSED;
             state = SimulationState.STOPPING;
+            trace.managerState(epoch, "SIMULATION_STOPPING", null);
             var completion = new CompletableFuture<Result>();
             stopCompletion = completion;
             var acknowledgements = new java.util.ArrayList<CompletableFuture<Void>>();
             acknowledgements.add(manager.requestStop());
             for (var elevator : elevators) { acknowledgements.add(elevator.requestStop()); }
+            if (fromPause) { supersedePause("STOP"); }
             CompletableFuture.allOf(acknowledgements.toArray(CompletableFuture[]::new))
                     .whenComplete((ignored, error) -> schedule(() -> {
                         if (state == SimulationState.STOPPING && stopCompletion == completion) {
@@ -295,6 +305,7 @@ public final class SimulationController implements AutoCloseable {
                                 beginClose();
                             } else {
                                 state = SimulationState.STOPPED;
+                                trace.managerState(epoch, "SIMULATION_STOPPED", null);
                                 completion.complete(result(Outcome.APPLIED, "Despacho y cabinas detenidos; pendientes conservados."));
                             }
                         }
@@ -304,14 +315,25 @@ public final class SimulationController implements AutoCloseable {
         });
     }
 
+    /** Solo coordinador: se llama DESPUÉS de encolar el control en los N+1 actores. */
+    private void supersedePause(String control) {
+        if (pauseCompletion != null && !pauseCompletion.isDone()) {
+            pauseCompletion.complete(result(Outcome.REJECTED, "Pausa sustituida por " + control + "."));
+        }
+        trace.managerState(epoch, "PAUSE_SUPERSEDED_BY_" + control, null);
+        pauseCoordinator.releaseForControl("Pausa sustituida por " + control);
+    }
+
     /** Una época por operación; RESET se confirma solo tras limpieza y N retornos. */
     public CompletableFuture<Result> reset() {
         return scheduleAsync(() -> {
             if (state == SimulationState.RESETTING) { return resetCompletion; }
             if (state != SimulationState.RESET && state != SimulationState.RUNNING
-                    && state != SimulationState.STOPPING && state != SimulationState.STOPPED) {
+                    && state != SimulationState.STOPPING && state != SimulationState.STOPPED
+                    && state != SimulationState.PAUSING && state != SimulationState.PAUSED) {
                 return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Reset no permitido en " + state));
             }
+            boolean fromPause = state == SimulationState.PAUSING || state == SimulationState.PAUSED;
             final long targetEpoch;
             final List<Command.Reset> commands;
             try {
@@ -333,6 +355,7 @@ public final class SimulationController implements AutoCloseable {
                 startWorkersOnce();
                 state = SimulationState.RESETTING;
                 epoch = targetEpoch;
+                trace.managerState(epoch, "SIMULATION_RESETTING", null);
                 if (stopCompletion != null && !stopCompletion.isDone()) {
                     stopCompletion.complete(result(Outcome.REJECTED, "Stop sustituido por reset global."));
                 }
@@ -341,6 +364,7 @@ public final class SimulationController implements AutoCloseable {
                 for (int i = 0; i < elevators.size(); i++) {
                     cabinAcks.add(elevators.get(i).requestReset(commands.get(i)));
                 }
+                if (fromPause) { supersedePause("RESET"); }
                 var participants = new java.util.ArrayList<CompletableFuture<?>>();
                 participants.add(managerAck);
                 participants.addAll(cabinAcks);
@@ -391,6 +415,7 @@ public final class SimulationController implements AutoCloseable {
                 }
             }
             state = SimulationState.RESET;
+            trace.managerState(epoch, "SIMULATION_RESET", null);
             completion.complete(result(Outcome.APPLIED, "Manejador limpio y todas las cabinas en 1/UP; esperando Start."));
         } catch (RuntimeException | Error exception) {
             failure = exception;
@@ -651,6 +676,7 @@ public final class SimulationController implements AutoCloseable {
         closeRequested.set(true);
         if (!shutdownStarted.compareAndSet(false, true)) { return; }
         state = SimulationState.CLOSING;
+        trace.managerState(epoch, "SIMULATION_CLOSING", null);
         invalidateImport(BatchImportResult.Outcome.REJECTED, "Cierre invalidó la lectura pendiente.");
         preparedBatch = Optional.empty();
         importExecutor.shutdownNow();
@@ -660,6 +686,7 @@ public final class SimulationController implements AutoCloseable {
         if (stopCompletion != null && !stopCompletion.isDone()) {
             stopCompletion.complete(result(Outcome.REJECTED, "Stop interrumpido por cierre."));
         }
+        if (pauseCoordinator.isRequested()) { trace.managerState(epoch, "PAUSE_SUPERSEDED_BY_CLOSE", null); }
         if (pauseCompletion != null && !pauseCompletion.isDone()) {
             pauseCompletion.complete(result(Outcome.REJECTED, "Pausa interrumpida por cierre."));
         }

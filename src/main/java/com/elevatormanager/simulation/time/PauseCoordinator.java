@@ -118,6 +118,26 @@ public final class PauseCoordinator implements AutoCloseable {
         } finally { lock.unlock(); }
     }
 
+    /**
+     * T56: libera una pausa incluso parcial por un control de mayor prioridad.
+     * El llamador debe ENCOLAR Stop/Reset en todos los actores antes de invocar.
+     * No equivale a Resume: el control prioritario gobierna la siguiente iteración.
+     */
+    public boolean releaseForControl(String reason) {
+        Objects.requireNonNull(reason, "reason");
+        CompletableFuture<Void> pending;
+        lock.lock();
+        try {
+            if (closed || !requested) { return false; }
+            clock.resume();
+            requested = false;
+            changed.signalAll();
+            pending = completion;
+        } finally { lock.unlock(); }
+        pending.completeExceptionally(new java.util.concurrent.CancellationException(reason));
+        return true;
+    }
+
     /** Un actor finalizado no puede dejar una barrera pendiente para siempre. */
     public void participantTerminated(int participant, Throwable failure) {
         checkId(participant);

@@ -30,7 +30,7 @@ import javax.swing.JSplitPane;
 /** T52: captura asíncrona y refresco visual limitado; ningún get/join, lectura o apertura en EDT. */
 public final class SystemControlPanel extends JPanel {
     private static final long serialVersionUID = 1L;
-    public enum Action { START, STOP, RESET, LOAD, CLOSE }
+    public enum Action { START, PAUSE, RESUME, STOP, RESET, LOAD, CLOSE }
     @FunctionalInterface interface SessionOpener {
         SimulationController open(SimulationConfig config) throws Exception;
     }
@@ -94,14 +94,19 @@ public final class SystemControlPanel extends JPanel {
         add(vertical, BorderLayout.CENTER);
         var controls = new JPanel(new BorderLayout(6, 6));
         var actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        String[] titles = {"Start", "Stop", "Reset", "Cargar archivo", "Cerrar"};
+        String[] titles = {"Start", "Pausar", "Reanudar", "Stop", "Reset", "Cargar archivo", "Cerrar"};
         for (var action : Action.values()) {
             var button = new JButton(titles[action.ordinal()]);
             buttons.put(action, button);
             actions.add(button);
         }
         controls.add(stateLabel, BorderLayout.NORTH);
-        controls.add(actions, BorderLayout.CENTER);
+        var actionScroll = new JScrollPane(actions, JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        actionScroll.setBorder(BorderFactory.createEmptyBorder());
+        actionScroll.setPreferredSize(new java.awt.Dimension(500, actions.getPreferredSize().height
+                + actionScroll.getHorizontalScrollBar().getPreferredSize().height + 4));
+        controls.add(actionScroll, BorderLayout.CENTER);
         detail.setEditable(false);
         detail.setLineWrap(true);
         detail.setWrapStyleWord(true);
@@ -110,6 +115,8 @@ public final class SystemControlPanel extends JPanel {
         controls.add(detailScroll, BorderLayout.SOUTH);
         add(controls, BorderLayout.NORTH);
         buttons.get(Action.START).addActionListener(event -> command(Action.START));
+        buttons.get(Action.PAUSE).addActionListener(event -> command(Action.PAUSE));
+        buttons.get(Action.RESUME).addActionListener(event -> command(Action.RESUME));
         buttons.get(Action.STOP).addActionListener(event -> command(Action.STOP));
         buttons.get(Action.RESET).addActionListener(event -> command(Action.RESET));
         buttons.get(Action.LOAD).addActionListener(event -> load());
@@ -176,6 +183,8 @@ public final class SystemControlPanel extends JPanel {
         if (action == Action.RESET) { ++importId; loading = false; }
         message(switch (action) {
             case START -> "Iniciando o continuando...";
+            case PAUSE -> "Pausando: esperando confirmación del manejador y las cabinas...";
+            case RESUME -> "Reanudando el tiempo restante...";
             case STOP -> "Deteniendo: esperando confirmación de las cabinas...";
             case RESET -> "Reseteando: limpiando solicitudes y retornando al piso 1...";
             default -> throw new IllegalArgumentException("Control desconocido.");
@@ -183,6 +192,8 @@ public final class SystemControlPanel extends JPanel {
         updateView();
         var result = switch (action) {
             case START -> controller.start();
+            case PAUSE -> controller.pause();
+            case RESUME -> controller.resume();
             case STOP -> controller.stop();
             case RESET -> controller.reset();
             default -> throw new IllegalArgumentException("Control desconocido.");
@@ -306,19 +317,30 @@ public final class SystemControlPanel extends JPanel {
         }
         buttons.get(Action.START).setEnabled(usable && idle && !loading
                 && (state == SimulationState.RESET || state == SimulationState.STOPPED));
-        buttons.get(Action.STOP).setEnabled(usable && idle && state == SimulationState.RUNNING);
+        buttons.get(Action.PAUSE).setEnabled(usable && idle && !loading && state == SimulationState.RUNNING);
+        buttons.get(Action.RESUME).setEnabled(usable && idle && !loading && state == SimulationState.PAUSED);
+        boolean canOverridePause = idle || pending == Action.PAUSE || pending == Action.RESUME;
+        buttons.get(Action.STOP).setEnabled(usable && canOverridePause
+                && (state == SimulationState.RUNNING || state == SimulationState.PAUSING || state == SimulationState.PAUSED));
         buttons.get(Action.RESET).setEnabled(usable && pending != Action.RESET && pending != Action.START
                 && (state == SimulationState.RESET || state == SimulationState.RUNNING
-                || state == SimulationState.STOPPING || state == SimulationState.STOPPED));
+                || state == SimulationState.STOPPING || state == SimulationState.STOPPED
+                || state == SimulationState.PAUSING || state == SimulationState.PAUSED));
         buttons.get(Action.LOAD).setEnabled(usable && idle && !loading && state == SimulationState.RESET);
         buttons.get(Action.CLOSE).setEnabled(!closing && !disposed);
         String current = closing ? "CLOSING — Cerrando..." : preparing ? "Preparando sesión..."
                 : state == null ? "SIN CONFIGURAR" : switch (state) {
+                    case PAUSING -> "PAUSING — Pausando... " + controller.pauseStatus().acknowledged()
+                            + "/" + controller.pauseStatus().participants();
                     case STOPPING -> "STOPPING — Deteniendo...";
                     case RESETTING -> "RESETTING — Reseteando...";
                     case CLOSING -> "CLOSING — Cerrando...";
                     default -> state.name();
                 };
+        if (!closing && pending == Action.PAUSE && state != SimulationState.PAUSED && state != SimulationState.PAUSING) {
+            current = "PAUSING — Pausando...";
+        }
+        if (!closing && pending == Action.RESUME) { current = "Reanudando..."; }
         if (!closing && pending == Action.STOP) { current = "STOPPING — Deteniendo..."; }
         if (!closing && pending == Action.RESET) { current = "RESETTING — Reseteando..."; }
         int count = controller == null ? 0 : controller.preparedBatch().map(batch -> batch.requests().size()).orElse(0);

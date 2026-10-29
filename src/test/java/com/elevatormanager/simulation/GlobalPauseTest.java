@@ -36,8 +36,8 @@ class GlobalPauseTest {
     @Test void manualRequestsAndImportsAreRejectedWhilePaused() throws Exception {
         GlobalPauseScenarios.manualRequestsAndImportsAreRejectedWhilePaused();
     }
-    @Test void pausedStopAndResetAwaitT56Policy() throws Exception {
-        GlobalPauseScenarios.pausedStopAndResetAwaitT56Policy();
+    @Test void pausedStopAndResetUsePriorityControl() throws Exception {
+        GlobalPauseScenarios.pausedStopAndResetUsePriorityControl();
     }
     @Test void edtCanRequestPauseAndResumeWithoutWaiting() throws Exception {
         GlobalPauseScenarios.edtCanRequestPauseAndResumeWithoutWaiting();
