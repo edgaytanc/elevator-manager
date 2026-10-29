@@ -1,5 +1,7 @@
 # T49 — Crear llamadas externas compartidas por piso
 
+> Cierre funcional confirmado al iniciar T50: 28 pruebas específicas, 72 combinadas y 650 acumuladas, BUILD SUCCESS, commit `2b17a64` y árbol limpio. Los registros acreditan llamadas servidas, Stop/continuación y cierre durante Reset; no un retorno global completo antes del cierre. El informe siguiente conserva su estado original.
+
 - **Fecha:** 2026-10-28, Guatemala.
 - **Fase:** 8 — Construir la interfaz gráfica obligatoria.
 - **Base:** T48 validada en `0bae607`, 28 pruebas específicas, 44 combinadas y 622 acumuladas; ejecución registrada con ambas cabinas, Stop/continuación, Reset y cierre.
