@@ -134,3 +134,8 @@ git commit -m "T56: integrar controles de pausa y prioridades"
 git status --short
 git log -1 --oneline
 ```
+
+
+## Validación confirmada por David — 29 de octubre de 2026
+
+PausePriorityTest y PauseControlsTest: 28/0/0/0; mvn clean verify: 838/0/0/0, ambos BUILD SUCCESS. Commit `7dfb8e5` (T56: integrar controles de pausa y prioridades); git diff --cached --check sin observaciones y git status --short sin salida. El archivo Texto pegado(20261029-065631).txt muestra el arranque del JAR, tres pares SIMULATION_PAUSING/PAUSED/RESUMED y el cierre normal del manejador y ambas cabinas, con retorno al prompt. No identifica uso de Stop/Reset ni cierre durante pausa, ni permite diferenciar Cerrar de X. No se inventan esas evidencias: el recorrido nativo conserva los pendientes y T57 amplía la aceptación temporal automatizada.

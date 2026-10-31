@@ -1,6 +1,6 @@
 # T56 — Recorrido nativo de pausa y prioridades
 
-- **Estado:** pendiente de ejecución por David en Windows; no se presenta como evidencia ya realizada.
+- **Estado:** ejecución parcial documentada por David; Maven satisfactorio y tres ciclos Pausar/Reanudar con cierre normal. Se conservan pendientes las comprobaciones no acreditadas en el registro.
 - **Preparación:** incorporar el ZIP, ejecutar Maven y arrancar el JAR desde la raíz.
 
 ```powershell
@@ -32,13 +32,13 @@ git diff --check
 
 ## Registro de resultados
 
-- Maven específico: pendiente (esperado 28/0/0/0).
-- Maven completo: pendiente (esperado 838/0/0/0).
-- PAUSED con capturas estables y Reanudar: pendiente.
+- Maven específico: confirmado 28/0/0/0 y BUILD SUCCESS.
+- Maven completo: confirmado 838/0/0/0 y BUILD SUCCESS.
+- PAUSED/Reanudar: tres ciclos confirmados en consola; estabilidad visual de capturas pendiente de confirmación.
 - Stop durante pausa: pendiente.
 - Reset durante pausa: pendiente.
 - Cerrar y X durante pausa: pendiente.
 - Acceso a controles al reducir ancho: pendiente.
-- Transiciones en visor y manejador.log: pendiente.
+- Transiciones: confirmadas en consola; inspección nativa del visor/archivo pendiente de confirmación.
 
 Tras confirmar, registrar resultados y marcar T56 completada en el plan. No cerrar aún la fase 9: T57 amplía las pruebas de pausa.

@@ -2,7 +2,7 @@
 
 - **Fecha:** 29 de octubre de 2026, Guatemala.
 - **Base confirmada:** T55, commit `dd9dc82`, 29/810 pruebas Maven satisfactorias y árbol limpio.
-- **Estado:** implementada; Maven y recorrido de escritorio pendientes en Windows.
+- **Estado:** incorporada por David en `7dfb8e5`, 28/838 pruebas Maven satisfactorias y árbol limpio. El registro de escritorio confirma tres ciclos Pausar/Reanudar y cierre normal; Stop/Reset/cierre durante pausa, X y geometría siguen pendientes de confirmación nativa.
 
 ## Comportamiento
 
