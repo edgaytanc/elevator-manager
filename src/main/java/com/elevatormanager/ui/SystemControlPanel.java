@@ -37,6 +37,8 @@ public final class SystemControlPanel extends JPanel {
     private final ConfigurationPanel configuration;
     private final HallCallPanel hallCalls;
     private final CabinDashboardPanel cabinDashboard;
+    private final BuildingPanel buildingPanel;
+    private final JScrollPane buildingScroll;
     private final EventViewerPanel eventViewer;
     private final EnumMap<Action, JButton> buttons = new EnumMap<>(Action.class);
     private final JLabel stateLabel = new JLabel();
@@ -83,7 +85,18 @@ public final class SystemControlPanel extends JPanel {
         workspace.add(hallCalls, BorderLayout.SOUTH);
         cabinDashboard = new CabinDashboardPanel();
         workspace.setMinimumSize(new java.awt.Dimension(350, 300));
-        var split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workspace, cabinDashboard);
+        buildingPanel = new BuildingPanel();
+        buildingScroll = new JScrollPane(buildingPanel);
+        buildingScroll.getAccessibleContext().setAccessibleName("Recorrido del edificio");
+        var buildingView = new JPanel(new BorderLayout());
+        buildingView.add(new JLabel("Ubicación por piso · usa las barras para recorrer el edificio"), BorderLayout.NORTH);
+        buildingView.add(buildingScroll, BorderLayout.CENTER);
+        var views = new javax.swing.JTabbedPane();
+        views.addTab("Cabinas", cabinDashboard);
+        views.addTab("Edificio", buildingView);
+        views.setSelectedIndex(1);
+        views.setMinimumSize(new java.awt.Dimension(330, 250));
+        var split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workspace, views);
         split.setResizeWeight(0.45);
         var workspaceScroll = new JScrollPane(split);
         workspaceScroll.setMinimumSize(new java.awt.Dimension(200, 120));
@@ -165,6 +178,15 @@ public final class SystemControlPanel extends JPanel {
             } else {
                 hallCalls.bind(session);
                 cabinDashboard.bind(session);
+                buildingPanel.bind(session.sessionId(), session.config());
+                SwingUtilities.invokeLater(() -> {
+                    if (!closing && !terminal && controller == session) {
+                        // Al abrir un edificio alto se presenta el piso inicial.
+                        buildingScroll.getViewport().setViewPosition(new java.awt.Point(0,
+                                Math.max(0, buildingPanel.getPreferredSize().height
+                                - buildingScroll.getViewport().getExtentSize().height)));
+                    }
+                });
                 snapshotPump = Objects.requireNonNull(pumpFactory.apply(session), "snapshotPump");
                 cabinDashboard.usePump(snapshotPump); snapshotPump.request();
                 eventViewer.bind(session);
@@ -313,6 +335,9 @@ public final class SystemControlPanel extends JPanel {
                 });
             }
             cabinDashboard.refresh(usable && idle && !loading);
+            if (snapshotPump != null && controller != null) {
+                snapshotPump.latest().ifPresent(data -> buildingPanel.render(data, controller.epoch()));
+            }
             eventViewer.refresh();
         }
         buttons.get(Action.START).setEnabled(usable && idle && !loading
@@ -359,6 +384,7 @@ public final class SystemControlPanel extends JPanel {
     }
 
     public Optional<SimulationController> controller() { requireEdt(); return Optional.ofNullable(controller); }
+    BuildingPanel buildingPanel() { requireEdt(); return buildingPanel; }
     UiSnapshotPump snapshotPump() { requireEdt(); return snapshotPump; }
     EventViewerPanel eventViewer() { requireEdt(); return eventViewer; }
     CabinDashboardPanel cabinDashboard() { requireEdt(); return cabinDashboard; }
