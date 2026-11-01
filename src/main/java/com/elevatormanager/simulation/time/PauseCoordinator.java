@@ -34,6 +34,9 @@ public final class PauseCoordinator implements AutoCloseable {
     /** Marcas lógicas: compartir esta instancia entre estado, snapshots y estimador. */
     public long nowNanos() { return clock.nowNanos(); }
 
+    /** T60: publicación temporal O(1), sin adquirir los locks de barrera/reloj. */
+    public PausableClock.View timeView() { return clock.view(); }
+
     public Status status() {
         lock.lock();
         try { return new Status(generation, requested, count, acknowledged.length); }

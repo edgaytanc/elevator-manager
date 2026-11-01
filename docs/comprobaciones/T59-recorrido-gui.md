@@ -1,6 +1,8 @@
 # T59 — Validación local y recorrido de animación
 
-- **Estado:** pendiente de resultados y aceptación de David.
+- **Estado actual:** T59 aceptada al solicitar David T60. Confirmados commit `1cd6913`, 18 pruebas específicas, 886 totales con BUILD SUCCESS y estado Git limpio. Se recibió una captura de tres cabinas en posiciones distintas; no acredita por sí sola fluidez, ambos sentidos y redimensionado.
+
+> El guion siguiente conserva el alcance y los resultados esperados de la entrega T59. Las limitaciones sobre sincronización de controles se abordan en T60.
 - **Base:** T58 aceptada en commit `712b24a`, 868 pruebas; repositorio limpio.
 
 ## Incorporación

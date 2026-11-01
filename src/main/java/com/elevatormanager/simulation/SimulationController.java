@@ -145,6 +145,11 @@ public final class SimulationController implements AutoCloseable {
      * Solo observación; consultar fuera del EDT al capturar el conjunto visual.
      */
     public long activeTimeNanos() { return pauseCoordinator.nowNanos(); }
+
+    /** T60: referencia de tiempo activo para pintura; lectura volatile sin locks. */
+    public com.elevatormanager.simulation.time.PausableClock.View timeView() {
+        return pauseCoordinator.timeView();
+    }
     public UUID sessionId() { return sessionId; }
     public Optional<ImportedRequestBatch> preparedBatch() { return preparedBatch; }
     public Optional<BatchDispatchReport> lastBatchDispatch() { return lastBatchDispatch; }

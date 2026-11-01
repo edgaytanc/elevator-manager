@@ -179,6 +179,7 @@ public final class SystemControlPanel extends JPanel {
                 hallCalls.bind(session);
                 cabinDashboard.bind(session);
                 buildingPanel.bind(session.sessionId(), session.config());
+                buildingPanel.useTimeView(session::timeView);
                 SwingUtilities.invokeLater(() -> {
                     if (!closing && !terminal && controller == session) {
                         // Al abrir un edificio alto se presenta el piso inicial.
@@ -212,6 +213,7 @@ public final class SystemControlPanel extends JPanel {
             default -> throw new IllegalArgumentException("Control desconocido.");
         });
         updateView();
+        if (snapshotPump != null) snapshotPump.invalidate();
         var result = switch (action) {
             case START -> controller.start();
             case PAUSE -> controller.pause();
@@ -225,6 +227,7 @@ public final class SystemControlPanel extends JPanel {
             pending = null;
             if (error != null) { message("No se completó el control: " + cause(error)); }
             else if (controller.isCurrent(receipt)) { message(receipt.detail()); }
+            if (snapshotPump != null) snapshotPump.requestFresh();
             updateView(); // Se consulta el estado actual; no se restaura el estado del recibo.
         }));
     }
@@ -270,6 +273,7 @@ public final class SystemControlPanel extends JPanel {
     public CompletableFuture<Void> closeAsync() {
         requireEdt();
         closing = true;
+        buildingPanel.freezeAnimation();
         ++operationId;
         ++importId;
         pending = null;
@@ -335,10 +339,11 @@ public final class SystemControlPanel extends JPanel {
                 });
             }
             cabinDashboard.refresh(usable && idle && !loading);
-            if (snapshotPump != null && controller != null) {
-                snapshotPump.latest().ifPresent(data -> buildingPanel.render(data, controller.epoch()));
-            }
             eventViewer.refresh();
+        }
+        // Una captura fresca de control se presenta en el próximo tick, sin esperar al gate del visor.
+        if (snapshotPump != null && controller != null && !closing && !terminal) {
+            snapshotPump.latest().ifPresent(data -> buildingPanel.render(data, controller.epoch()));
         }
         buildingPanel.refreshAnimation();
         buttons.get(Action.START).setEnabled(usable && idle && !loading

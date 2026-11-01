@@ -1,6 +1,7 @@
 package com.elevatormanager.ui;
 
 import com.elevatormanager.model.ElevatorSnapshot;
+import com.elevatormanager.simulation.time.PausableClock;
 import com.elevatormanager.model.SimulationConfig;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import javax.swing.JPanel;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
@@ -29,6 +31,10 @@ public final class BuildingPanel extends JPanel implements Scrollable {
     private List<ElevatorSnapshot> snapshots = List.of();
     private UiSnapshotPump.Frame rendered;
     private final LongSupplier wallClock;
+    private Supplier<PausableClock.View> timeView;
+    private Long frozenActive;
+    private boolean frozenResumed;
+    private boolean animationClosed;
 
     public BuildingPanel() { this(System::nanoTime); }
 
@@ -44,14 +50,30 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         requireEdt();
         sessionId = Objects.requireNonNull(session, "session");
         config = Objects.requireNonNull(configuration, "configuration");
-        snapshots = List.of(); rendered = null;
+        snapshots = List.of(); rendered = null; timeView = null; frozenActive = null; frozenResumed = false; animationClosed = false;
         revalidate(); repaint();
+    }
+
+    /** El proveedor de producción solo lee una referencia volatile, sin locks. */
+    public void useTimeView(Supplier<PausableClock.View> source) {
+        requireEdt(); timeView = Objects.requireNonNull(source, "source");
+    }
+
+    /** Cierre: conserva la posición mientras se liberan actores y capturas. */
+    public void freezeAnimation() {
+        requireEdt();
+        if (animationClosed) return;
+        animationClosed = true;
+        long now = wallClock.getAsLong();
+        if (timeView != null) {
+            var view = timeView.get(); frozenActive = view.at(now); frozenResumed = !view.paused();
+        } else if (rendered != null) frozenActive = rendered.timing().map(t -> t.at(now)).orElse(null);
     }
 
     /** Solo acepta la sesión/época vigente. Reutiliza el conjunto inmutable de T52. */
     public void render(UiSnapshotPump.Frame frame, long currentEpoch) {
         requireEdt();
-        if (config == null || !frame.sessionId().equals(sessionId) || frame.epoch() != currentEpoch
+        if (animationClosed || config == null || !frame.sessionId().equals(sessionId) || frame.epoch() != currentEpoch
                 || frame.snapshots().size() != config.elevatorCount() || frame == rendered) return;
         snapshots = frame.snapshots(); rendered = frame;
         repaint();
@@ -99,6 +121,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 if (floor == lastFloor) break;
             }
             long wallNow = wallClock.getAsLong();
+            var currentTime = timeView == null ? null : timeView.get();
             int firstCabin = layout.cabinAt(clip.x);
             int lastCabin = layout.cabinAt((double) clip.x + clip.width);
             for (int id = firstCabin; ; id++) {
@@ -110,7 +133,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 g.setColor(new Color(32, 46, 64));
                 String title = "Elevador " + id;
                 g.drawString(title, x - g.getFontMetrics().stringWidth(title) / 2, 25);
-                Rectangle cabin = layout.cabinBounds(id, positionAt(id, wallNow));
+                Rectangle cabin = layout.cabinBounds(id, positionAt(id, wallNow, currentTime));
                 if (clip.intersects(cabin)) {
                     g.setColor(CABIN_COLOR);
                     g.fillRoundRect(cabin.x, cabin.y, cabin.width, cabin.height, 8, 8);
@@ -134,21 +157,23 @@ public final class BuildingPanel extends JPanel implements Scrollable {
     /** Piso fraccional de presentación, distinto de displayedFloor (piso lógico). */
     double displayedPosition(int id) {
         requireEdt();
-        return positionAt(id, wallClock.getAsLong());
+        return positionAt(id, wallClock.getAsLong(), timeView == null ? null : timeView.get());
     }
 
-    private double positionAt(int id, long wallNow) {
+    private double positionAt(int id, long wallNow, PausableClock.View currentTime) {
         int logicalFloor = displayedFloor(id);
         if (snapshots.isEmpty()) return logicalFloor;
         var snapshot = snapshots.get(id - 1);
-        long active = rendered.timing().map(sample -> sample.at(wallNow)).orElse(snapshot.referenceNanos());
-        return CabinMotion.position(snapshot, active);
+        long active = frozenActive != null ? frozenActive : currentTime != null ? currentTime.at(wallNow)
+                : rendered.timing().map(sample -> sample.at(wallNow)).orElse(snapshot.referenceNanos());
+        return CabinMotion.position(snapshot, active,
+                frozenActive != null ? frozenResumed : currentTime != null && !currentTime.paused());
     }
 
     /** Un tick solo invalida la región visible; no captura ni recorre todo N/P. */
     void refreshAnimation() {
         requireEdt();
-        if (config != null && isShowing()) repaint(getVisibleRect());
+        if (!animationClosed && config != null && isShowing()) repaint(getVisibleRect());
     }
 
     @Override public Dimension getPreferredScrollableViewportSize() { return new Dimension(600, 320); }

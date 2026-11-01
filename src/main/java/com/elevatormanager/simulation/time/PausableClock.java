@@ -14,6 +14,15 @@ import java.util.function.LongSupplier;
  * Cada intervalo medido debe ser menor que Long.MAX_VALUE nanosegundos.
  */
 public final class PausableClock implements AutoCloseable {
+    /** T60: referencia inmutable publicada; at usa el mismo origen que sourceNanos.
+     * Leer view no adquiere locks. Una vista antigua no se modifica al reanudar.
+     */
+    public record View(long activeNanos, long sourceNanos, boolean paused) {
+        public long at(long currentSourceNanos) {
+            return activeNanos + (paused ? 0L : Math.max(0L, currentSourceNanos - sourceNanos));
+        }
+    }
+    private volatile View publishedView;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition changed = lock.newCondition();
     private final LongSupplier source;
@@ -28,7 +37,10 @@ public final class PausableClock implements AutoCloseable {
     PausableClock(LongSupplier source) {
         this.source = Objects.requireNonNull(source, "source");
         sampledAt = source.getAsLong();
+        publishedView = new View(0, sampledAt, false);
     }
+
+    public View view() { return publishedView; }
 
     public long nowNanos() {
         lock.lock();
@@ -46,6 +58,7 @@ public final class PausableClock implements AutoCloseable {
             if (paused) { return false; }
             activeNanos = currentTime();
             paused = true;
+            publishedView = new View(activeNanos, sampledAt, true);
             changed.signalAll();
             return true;
         } finally { lock.unlock(); }
@@ -59,6 +72,7 @@ public final class PausableClock implements AutoCloseable {
             if (!paused) { return false; }
             sampledAt = source.getAsLong();
             paused = false;
+            publishedView = new View(activeNanos, sampledAt, false);
             changed.signalAll();
             return true;
         } finally { lock.unlock(); }
@@ -127,6 +141,7 @@ public final class PausableClock implements AutoCloseable {
     public void close() {
         lock.lock();
         try {
+            if (!closed) publishedView = new View(currentTime(), sampledAt, true);
             closed = true;
             changed.signalAll();
         } finally { lock.unlock(); }

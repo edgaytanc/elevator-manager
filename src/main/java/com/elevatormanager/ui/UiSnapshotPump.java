@@ -41,6 +41,8 @@ public final class UiSnapshotPump {
     private final AtomicReference<Frame> latest = new AtomicReference<>();
     private final AtomicReference<Throwable> failure = new AtomicReference<>();
     private boolean inFlight;
+    private Object generation = new Object();
+    private boolean freshPending;
     private boolean closed;
     private CompletableFuture<Void> termination;
 
@@ -52,16 +54,40 @@ public final class UiSnapshotPump {
 
     public synchronized void request() {
         if (closed || inFlight || !gate.due()) return;
+        launch();
+    }
+
+    /** T60: invalida incluso una captura en vuelo, sin esperar ni interrumpir el motor. */
+    public synchronized void invalidate() {
+        generation = new Object(); latest.set(null); failure.set(null); freshPending = false;
+    }
+
+    /** Solo controles: pide una captura fresca sin esperar al gate de 100 ms. */
+    public synchronized void requestFresh() {
+        if (closed) return;
+        invalidate();
+        if (inFlight) freshPending = true;
+        else launch();
+    }
+
+    private void launch() {
         inFlight = true;
+        Object ticket = generation;
         executor.execute(() -> {
             try {
                 if (SwingUtilities.isEventDispatchThread()) throw new IllegalStateException("Captura en EDT.");
                 Frame frame = capture.get();
                 synchronized (this) {
-                    if (!closed && frame != null) { latest.set(frame); failure.set(null); }
+                    if (!closed && ticket == generation && frame != null) { latest.set(frame); failure.set(null); }
                 }
-            } catch (RuntimeException | Error error) { failure.set(error); }
-            finally { synchronized (this) { inFlight = false; } }
+            } catch (RuntimeException | Error error) {
+                synchronized (this) { if (!closed && ticket == generation) failure.set(error); }
+            } finally {
+                synchronized (this) {
+                    inFlight = false;
+                    if (!closed && freshPending) { freshPending = false; launch(); }
+                }
+            }
         });
     }
 
@@ -88,13 +114,14 @@ public final class UiSnapshotPump {
         var timing = new Timing(active, wall, advancing);
         // No es una captura atómica global. Descarta también transiciones durante el muestreo.
         return epoch == controller.epoch() && state == controller.state()
+                && snapshots.stream().allMatch(snapshot -> snapshot.epoch() == epoch)
                 ? new Frame(controller.sessionId(), epoch, snapshots, assigned, Optional.of(timing)) : null;
     }
 
     /** No espera al trabajador en el llamador; una captura tardía no vuelve a publicarse. */
     public synchronized CompletableFuture<Void> closeAsync() {
         if (termination != null) return termination.copy();
-        closed = true; latest.set(null); executor.shutdownNow();
+        closed = true; freshPending = false; latest.set(null); executor.shutdownNow();
         termination = CompletableFuture.runAsync(() -> {
             try { while (!executor.awaitTermination(1, TimeUnit.SECONDS)) { /* Fuera del EDT. */ } }
             catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new CompletionException(error); }
