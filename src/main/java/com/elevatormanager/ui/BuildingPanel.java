@@ -11,14 +11,15 @@ import java.awt.RenderingHints;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import javax.swing.JPanel;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-/** T58: edificio virtual, sin un componente por piso ni acceso al estado mutable.
- * Muestra el último piso confirmado; la interpolación corresponde a T59.
+/** T59: edificio virtual interpolado desde snapshots y reloj activo muestreado.
+ * La representación nunca modifica el piso lógico ni confirma llegadas.
  */
 public final class BuildingPanel extends JPanel implements Scrollable {
     private static final long serialVersionUID = 1L;
@@ -27,9 +28,14 @@ public final class BuildingPanel extends JPanel implements Scrollable {
     private SimulationConfig config;
     private List<ElevatorSnapshot> snapshots = List.of();
     private UiSnapshotPump.Frame rendered;
+    private final LongSupplier wallClock;
 
-    public BuildingPanel() {
+    public BuildingPanel() { this(System::nanoTime); }
+
+    /** Reloj de presentación inyectable; no sustituye el reloj del motor. */
+    BuildingPanel(LongSupplier wallClock) {
         requireEdt();
+        this.wallClock = Objects.requireNonNull(wallClock, "wallClock");
         setBackground(Color.WHITE);
         getAccessibleContext().setAccessibleName("Edificio: pisos y cabinas identificados por número");
     }
@@ -92,6 +98,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 g.drawString("Piso " + floor, 8, y + 5);
                 if (floor == lastFloor) break;
             }
+            long wallNow = wallClock.getAsLong();
             int firstCabin = layout.cabinAt(clip.x);
             int lastCabin = layout.cabinAt((double) clip.x + clip.width);
             for (int id = firstCabin; ; id++) {
@@ -103,8 +110,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 g.setColor(new Color(32, 46, 64));
                 String title = "Elevador " + id;
                 g.drawString(title, x - g.getFontMetrics().stringWidth(title) / 2, 25);
-                int floor = displayedFloor(id);
-                Rectangle cabin = layout.cabinBounds(id, floor);
+                Rectangle cabin = layout.cabinBounds(id, positionAt(id, wallNow));
                 if (clip.intersects(cabin)) {
                     g.setColor(CABIN_COLOR);
                     g.fillRoundRect(cabin.x, cabin.y, cabin.width, cabin.height, 8, 8);
@@ -125,6 +131,26 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         return snapshots.isEmpty() ? 1 : snapshots.get(id - 1).currentFloor();
     }
 
+    /** Piso fraccional de presentación, distinto de displayedFloor (piso lógico). */
+    double displayedPosition(int id) {
+        requireEdt();
+        return positionAt(id, wallClock.getAsLong());
+    }
+
+    private double positionAt(int id, long wallNow) {
+        int logicalFloor = displayedFloor(id);
+        if (snapshots.isEmpty()) return logicalFloor;
+        var snapshot = snapshots.get(id - 1);
+        long active = rendered.timing().map(sample -> sample.at(wallNow)).orElse(snapshot.referenceNanos());
+        return CabinMotion.position(snapshot, active);
+    }
+
+    /** Un tick solo invalida la región visible; no captura ni recorre todo N/P. */
+    void refreshAnimation() {
+        requireEdt();
+        if (config != null && isShowing()) repaint(getVisibleRect());
+    }
+
     @Override public Dimension getPreferredScrollableViewportSize() { return new Dimension(600, 320); }
     @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 36; }
     @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
@@ -142,7 +168,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         static final int LEFT = 112, RIGHT = 20, TOP = 48, BOTTOM = 20;
         double laneWidth() { return (width - LEFT - RIGHT) / (double) cabins; }
         double floorHeight() { return (height - TOP - BOTTOM) / (double) floors; }
-        int floorY(int floor) { return (int) Math.round(TOP + (floors - floor + 0.5) * floorHeight()); }
+        int floorY(double floor) { return (int) Math.round(TOP + (floors - floor + 0.5) * floorHeight()); }
         int cabinX(int id) { return (int) Math.round(LEFT + (id - 0.5) * laneWidth()); }
         int floorAt(double y) {
             return (int) Math.max(1, Math.min(floors, floors - Math.floor((y - TOP) / floorHeight())));
@@ -150,7 +176,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         int cabinAt(double x) {
             return (int) Math.max(1, Math.min(cabins, 1 + Math.floor((x - LEFT) / laneWidth())));
         }
-        Rectangle cabinBounds(int id, int floor) {
+        Rectangle cabinBounds(int id, double floor) {
             int w = Math.max(1, (int) Math.min(76, laneWidth() - 24));
             int h = Math.max(1, (int) Math.min(28, floorHeight() * 0.7));
             return new Rectangle(cabinX(id) - w / 2, floorY(floor) - h / 2, w, h);

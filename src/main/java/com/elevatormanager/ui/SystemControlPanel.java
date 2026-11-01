@@ -89,7 +89,7 @@ public final class SystemControlPanel extends JPanel {
         buildingScroll = new JScrollPane(buildingPanel);
         buildingScroll.getAccessibleContext().setAccessibleName("Recorrido del edificio");
         var buildingView = new JPanel(new BorderLayout());
-        buildingView.add(new JLabel("Ubicación por piso · usa las barras para recorrer el edificio"), BorderLayout.NORTH);
+        buildingView.add(new JLabel("Movimiento de cabinas · usa las barras para recorrer el edificio"), BorderLayout.NORTH);
         buildingView.add(buildingScroll, BorderLayout.CENTER);
         var views = new javax.swing.JTabbedPane();
         views.addTab("Cabinas", cabinDashboard);
@@ -134,7 +134,7 @@ public final class SystemControlPanel extends JPanel {
         buttons.get(Action.RESET).addActionListener(event -> command(Action.RESET));
         buttons.get(Action.LOAD).addActionListener(event -> load());
         buttons.get(Action.CLOSE).addActionListener(event -> onCloseRequest.run());
-        refresh = new Timer(100, event -> updateView());
+        refresh = new Timer(16, event -> updateView());
         refresh.setCoalesce(true);
         refresh.start();
         message("Valida la configuración para preparar la sesión.");
@@ -340,6 +340,7 @@ public final class SystemControlPanel extends JPanel {
             }
             eventViewer.refresh();
         }
+        buildingPanel.refreshAnimation();
         buttons.get(Action.START).setEnabled(usable && idle && !loading
                 && (state == SimulationState.RESET || state == SimulationState.STOPPED));
         buttons.get(Action.PAUSE).setEnabled(usable && idle && !loading && state == SimulationState.RUNNING);

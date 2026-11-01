@@ -1,6 +1,8 @@
 # T58 — Validación y recorrido GUI en Windows
 
-- **Estado:** pendiente de resultados de David.
+- **Estado actual:** T58 aceptada por David al solicitar T59. Confirmados commit `712b24a`, 12 pruebas específicas, 868 totales, BUILD SUCCESS y estado Git limpio. No se reciben capturas visuales adicionales.
+
+> El recorrido siguiente es el guion original de T58; sus instrucciones describen la vista discreta anterior a T59. Se conserva como registro histórico, no como comportamiento de la animación nueva.
 - **Alcance:** panel gráfico por piso confirmado, inicio de fase 10.
 
 ## Incorporación

@@ -140,6 +140,11 @@ public final class SimulationController implements AutoCloseable {
 
     public SimulationConfig config() { return config; }
     public long epoch() { return epoch; }
+
+    /** T59: reloj activo compartido con referenceNanos de los snapshots.
+     * Solo observación; consultar fuera del EDT al capturar el conjunto visual.
+     */
+    public long activeTimeNanos() { return pauseCoordinator.nowNanos(); }
     public UUID sessionId() { return sessionId; }
     public Optional<ImportedRequestBatch> preparedBatch() { return preparedBatch; }
     public Optional<BatchDispatchReport> lastBatchDispatch() { return lastBatchDispatch; }
