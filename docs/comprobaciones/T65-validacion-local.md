@@ -48,3 +48,7 @@ git status --short
 Maven no está instalado en el entorno de implementación; los adaptadores JUnit esperan ejecutarse con sus dependencias reales en Windows. El total 1,114 es esperado, no observado aquí. Las pruebas headless no constituyen un nuevo recorrido nativo de ventanas.
 
 STATE es una proyección de consulta y no reemplaza el snapshot de animación/planificación. Los canales de producción incorporan origen y registro de IDs; se conservan APIs heredadas para compatibilidad con los escenarios previos. La comprobación de aceptación final del protocolo completo y el cierre de fase 11 corresponden a T66.
+
+## Actualización recibida — T65 cerrada
+
+David compartió la ejecución Windows del 2026-11-02: ProtocolIntegrationTest con 64 y mvn clean verify con 1,114 pruebas, sin fallos, errores ni omitidas; ambas BUILD SUCCESS. La demo confirmó HELD, clockFrozen=true y `T65_INTEGRATION_OK; epoch=1; state=CLOSED; responsesJoined=true`. Revisión diff/staged sin observaciones, commit `0648e6d` y git status --short vacío. Se da por satisfecha la validación pendiente de la entrega original; T65 queda cerrada y T66 toma la demostración final.

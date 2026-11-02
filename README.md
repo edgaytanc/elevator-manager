@@ -1,6 +1,6 @@
 # Elevator Manager
 
-Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 8, T53 — recorrido completo desde GUI.** T52 incorporada en `6eec38e`, con 754 pruebas Maven satisfactorias y árbol limpio. T53 añade integración del recorrido y guía de aceptación nativa.
+Simulador de elevadores en Java 17, Swing y Maven. **Etapa actual: fase 11, T66 — demostración integral del protocolo textual.** T65 aceptada en `0648e6d`, con 1,114 pruebas Maven correctas y Git limpio. T66 agrega 22 casos y una traza reproducible; validación local pendiente.
 
 El motor ya dispone de trabajadores independientes por elevador, manejador con hilo propio, solicitudes con herencia real, Stop/continuación, Reset, cierre asíncrono, logs e importación validada en RESET. El formulario de entrada captura N, P y ambos tiempos en milisegundos. T48 conecta preparación de sesión, Start, Stop/continuación, Reset, carga de archivos en RESET y cierre con confirmación real.
 
@@ -17,12 +17,19 @@ El motor ya dispone de trabajadores independientes por elevador, manejador con h
 El ZIP contiene el proyecto fuente completo con rutas relativas a la raíz Maven, sin .git, target ni logs generados. Extraer sobre la raíz de elevator-manager, conservando el repositorio local. Los archivos pom.xml, README.md, src y docs deben quedar al mismo nivel.
 
 ```powershell
-mvn "-Dtest=GuiJourneyTest,EdtSafetyTest,EventViewerTest,CabinPanelsTest,HallCallsTest,SystemControlsTest,ConfigurationFormTest" test
+mvn "-Dtest=ProtocolAcceptanceTest" test
 mvn clean verify
 java -jar .\target\elevator-manager-0.1.0-SNAPSHOT.jar
 ```
 
-T53 agrega 10 pruebas integradas. Se esperan 10 específicas de GuiJourneyTest, 186 junto a la interfaz anterior y 764 acumuladas. Maven y la aceptación visual T53 permanecen pendientes en Windows; el informe local distingue escenarios independientes de JUnit. Seguir el [recorrido completo desde GUI](docs/comprobaciones/T53-recorrido-gui.md), incluido el ejemplo 23 de cuatro solicitudes para N=2/P=8.
+T66 espera 22 pruebas específicas y 1,136 totales, sin fallos/errores/omitidas, con BUILD SUCCESS. La demo del protocolo se ejecuta sin abrir la GUI:
+
+```powershell
+java -cp .\target\classes com.elevatormanager.diagnostics.ProtocolAcceptanceDemo
+java -cp .\target\elevator-manager-0.1.0-SNAPSHOT.jar com.elevatormanager.diagnostics.ProtocolAcceptanceDemo RESET_IN_FLIGHT
+```
+
+La ejecución completa debe terminar en `T66_PROTOCOL_OK; scenarios=22; failures=0; threadsJoined=true`; la aislada indica scenarios=1. Ver [validación T66](docs/comprobaciones/T66-validacion-local.md), [traza real](docs/comprobaciones/T66-traza-local.md) y [recorrido gráfico](docs/comprobaciones/T66-recorrido-gui.md).
 
 ## Formulario actual
 

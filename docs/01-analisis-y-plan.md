@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–10 cerradas. Fase 11: T62, T63 y T64 cerradas; T64 validada en `36af413`, 48 específicas/1,050 totales, BUILD SUCCESS y árbol limpio. T65 implementada y comprobada con escenarios independientes; Maven Windows y aceptación de David pendientes. T66 pendiente.
+- **Estado:** fases 1–10 cerradas. Fase 11: T62–T65 cerradas; T65 validada en `0648e6d`, 64 específicas/1,114 totales, BUILD SUCCESS y árbol limpio. T66 implementada con demo integral y 22 casos; validación Maven Windows y aceptación final pendientes. Fase 12 todavía no iniciada.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -298,7 +298,7 @@ elevator-manager/
 - [x] **T62 — Especificar gramática y semántica del protocolo.** Etiqueta: EXTRA-3. Definir versión, separador, comandos, argumentos, IDs de correlación, generación, errores, aceptación y finalización. **Aceptación:** el documento permite a otra persona construir un emisor/receptor compatible sin leer la implementación.
 - [x] **T63 — Implementar codificador y parser del protocolo.** Etiqueta: EXTRA-3. Convertir comandos tipados a texto y volver a tipos validados. **Aceptación:** round-trip conserva información y mensajes malformados producen errores controlados, sin matar trabajadores.
 - [x] **T64 — Sustituir la frontera manejador–cabina por mensajes de texto.** Etiqueta: EXTRA-3. Transportar cadenas mediante colas seguras, parsearlas en el trabajador y responder por canal de eventos. **Aceptación:** las órdenes funcionales cruzan realmente la frontera en texto; imprimir una cadena en el log no cuenta.
-- [ ] **T65 — Integrar respuestas, estado y reset.** Etiqueta: EXTRA-3. Relacionar ACK/ERROR/completado/estado con mensaje, cabina y generación; descartar órdenes antiguas. **Aceptación:** ACK significa aceptación, no llegada, y ninguna respuesta obsoleta altera un reset completado.
+- [x] **T65 — Integrar respuestas, estado y reset.** Etiqueta: EXTRA-3. Relacionar ACK/ERROR/completado/estado con mensaje, cabina y generación; descartar órdenes antiguas. **Aceptación:** ACK significa aceptación, no llegada, y ninguna respuesta obsoleta altera un reset completado.
 - [ ] **T66 — Probar y demostrar el protocolo completo.** Etiqueta: CALIDAD. Cubrir argumentos inválidos, comando desconocido, destinatario inexistente, duplicado y reset con mensajes en vuelo. **Aceptación:** existe una traza textual reproducible y los extras anteriores siguen funcionando después de la integración.
 
 ### Fase 12 — Integración y pruebas de aceptación
@@ -628,3 +628,15 @@ El manejador consume V1 desde ProtocolMailbox y actualiza admisión/servicio por
 El controlador integra START/STOP/PAUSE/RESUME/RESET/STATUS/SHUTDOWN por canales internos de productor; mantiene la barrera nativa del manejador y el reloj común. STATUS en pausa se ejecuta en el actor sin liberar tiempo. Reset espera pruebas textuales de las N cabinas más limpieza del manejador y verifica físicamente 1/UP antes de RESET. Un consumidor de respuestas por sesión se une antes de CLOSED. El registro de IDs de comando persiste entre generaciones y detecta conflictos de contenido/destinatario.
 
 Compilación real Java 17 de 133 fuentes independientes; 64 casos específicos y 1,005 previos en 47 grupos correctos en sus ejecuciones finales (1,069 total). Maven pendiente: 1,114 esperadas (1,050 base + 64). Se conserva herencia real, hilos por actor, logging, importación y GUI. Ver [implementación](implementacion/T65-respuestas-estado-y-reset.md), [código completo](implementacion/T65-codigo-completo.md), [validación](comprobaciones/T65-validacion-local.md) y [resultados](comprobaciones/T65-resultados-locales.md). T65 queda implementada en revisión local; T66 no se inicia ni se declara cerrada la fase 11.
+
+## Avance T66 — Demostración integral del protocolo
+
+Base aceptada: T65, commit `0648e6d`, 64 específicas y 1,114 totales sin fallos/errores/omitidas, BUILD SUCCESS, demo STATUS en pausa/reset/cierre correcta y Git limpio. T65 queda cerrada.
+
+Se agrega ProtocolAcceptanceDemo, ejecutable sin JUnit desde clases o JAR, con 22 casos verificables: argumentos inválidos, comando/versión desconocidos, destinatario inexistente o equivocado, tamaño, roles, reintento activo/terminal/conflictivo, alias, reset con servicio en vuelo/inbox antiguo, mensaje tardío/futuro, STATUS histórico, paralelismo, manejador real y controles integrados. Cada caso une sus actores antes de imprimir T66_CASE_OK; el marcador global solo se imprime si todos concluyen.
+
+La gramática V1 y el motor de producción permanecen en la base aceptada. Las pruebas nuevas ejercitan sus canales con origen; el manejador real reconstruye y confirma la solicitud recibida desde texto. La regresión incluye pausa, renderizado/animación, importación, logging y ciclo de vida. Ver [implementación](implementacion/T66-protocolo-completo.md), [código completo](implementacion/T66-codigo-completo.md), [validación](comprobaciones/T66-validacion-local.md), [traza real](comprobaciones/T66-traza-local.md) y [aceptación fase 11](comprobaciones/T66-aceptacion-fase-11.md).
+
+T66 queda implementada en revisión local. La fase 11 se cerrará con Maven/demo y aceptación del comportamiento visual; no se declara iniciada T67.
+
+Comprobación local T66: 134 fuentes independientes compiladas; 22 casos nuevos y 1,069 anteriores (48 grupos) correctos en sus ejecuciones finales, total 1,091. La demo completa pasa desde clases y JAR auxiliar. Se registra un timeout de salida inicial en CabinAnimationScenarios, seguido de repetición aislada correcta sin cambios. Maven Windows esperado: 22 específicas y 1,136 totales. Ver el informe de resultados para distinguir ejecución observada de aceptación pendiente.

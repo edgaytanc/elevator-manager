@@ -85,3 +85,7 @@ git status --short
 ```
 
 No se realiza el commit en nombre de David. La siguiente tarea es T66 — Probar y demostrar el protocolo completo.
+
+## Aceptación posterior
+
+T65 validada por David en Windows: 64 pruebas específicas, 1,114 totales, cero fallos/errores/omitidas, BUILD SUCCESS y demo correcta. Commit `0648e6d`, con árbol limpio. La revisión pendiente de la entrega original queda cerrada.

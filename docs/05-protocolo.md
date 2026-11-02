@@ -398,3 +398,19 @@ queryStatus requiere actores iniciados y es válida en RUNNING, STOPPED, PAUSED 
 No se añaden hilos por mensaje. Un solo ProtocolResponsePump por sesión lee respuestas, y su join termina antes de CLOSED; las finalizaciones de futuros ocurren fuera de monitores y fuera de los trabajadores de cabina. Las colas de suscripción anteriores no se comparten entre consumidores. Los cambios de ids por controles se reflejan en los escenarios de importación: preparar un archivo no consume IDs; START emite uno por cabina antes de enviar el lote.
 
 [Resultados T65](comprobaciones/T65-resultados-locales.md) contiene pruebas de correlación adversarial, estado viejo, pausa, cierre y reset. La demostración de aceptación final del protocolo completo queda en T66; no se atribuye a T65 el cierre de esa tarjeta ni de toda la fase 11.
+
+## 16. Demostración integral T66
+
+La versión y la gramática continúan siendo V1. Ejecutar ProtocolAcceptanceDemo sin argumentos recorre 22 casos; un nombre de Scenario permite aislar uno. Una ejecución correcta termina en `T66_PROTOCOL_OK; scenarios=22; failures=0; threadsJoined=true`. Un argumento desconocido o cualquier incumplimiento termina con excepción y sin marcador global.
+
+| Familia de evidencia | Casos de la demo |
+| --- | --- |
+| Forma/argumentos | INVALID_UUID, INVALID_FLOOR, INVALID_DIRECTION, EXTRA_ARGUMENT, UNSUPPORTED_VERSION, OVERSIZED_FRAME |
+| Comando y receptor | UNKNOWN_COMMAND, UNKNOWN_ELEVATOR, WRONG_RECIPIENT, WRONG_ROLE |
+| Identidad y servicio | ACTIVE_REPLAY, COMPLETED_REPLAY, CONFLICTING_REPLAY, COALESCED_SERVICE |
+| Generación y retorno | RESET_IN_FLIGHT, QUEUED_BEFORE_RESET, LATE_OLD_FRAME, FUTURE_FRAME |
+| Estado e integración | STATUS_REPLAY, PARALLEL_CABINS, MANAGER_ROUND_TRIP, CONTROLLER_EXTRAS |
+
+T66_TX identifica lo enviado por el cliente diagnóstico. En MANAGER_ROUND_TRIP, la línea TX se obtiene del resultado de despacho del manejador real y se contrasta con la orden reconstruida por el receptor; la respuesta proviene de su buzón. T66_RX contiene respuestas recibidas reales, incluso STATE espontáneo con ID 0. Los comandos y escenarios usan identidades fijas; los restantes y el entrelazado entre actores pueden variar. La reproducibilidad exige los mismos resultados e invariantes, no igualdad byte a byte de tiempos/trazas.
+
+Un reintento terminal repite su resultado histórico y no genera servicio físico nuevo. STATE histórico no hace retroceder la caché vigente. Reset cancela lo admitido con la correlación original, rechaza como STALE_EPOCH lo nunca admitido y confirma origen/dirección/agenda vacía antes de finalizar. Ver [traza real](comprobaciones/T66-traza-local.md) y [guía de reproducción](comprobaciones/T66-validacion-local.md).

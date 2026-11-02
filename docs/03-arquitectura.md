@@ -459,3 +459,9 @@ El manejador deja de depender de su suscripción ExecutionEvent para seguir llam
 Arranque asíncrono conserva una sola operación aplicada entre llamadas concurrentes. Mientras espera START se impide confirmar/importar lotes; Stop/Pausa encolados detrás esperan el arranque sin bloquear el coordinador. Stop conserva despachos que ya estaban en vuelo. Reset adopta una generación y descarta respuestas/consultas antiguas para la caché vigente, sin confundir ACK con retorno físico. Consultar durante cierre devuelve error local; las consultas en carrera se resuelven o rechazan, nunca quedan sin completar.
 
 El consumidor protocol-responses es un recurso de sesión, no un nuevo trabajador de movimiento ni un participante de la barrera de pausa. El cerrador une manejador/cabinas, drena/une ese consumidor y después libera los demás recursos antes de publicar CLOSED. Los adaptadores heredados conservan las pruebas y firmas previas; los canales con origen son la ruta de producción.
+
+## Avance T66 — Demostración ejecutable
+
+ProtocolAcceptanceDemo es un cliente diagnóstico, sin dependencias de JUnit ni autoridad nueva. Instancia actores reales, envía cadenas por CommandChannel, decodifica sus respuestas y compara evidencias con el estado físico. El escenario del manejador utiliza ManagerWorker de producción y exige una llamada SERVED tras una parada compatible. La prueba de reintento de STATUS alimenta ProtocolReplyTracker con las respuestas observadas en su orden real.
+
+Los escenarios locales cierran con SHUTDOWN textual y unen el hilo en finally; los cierres usan IDs distintos por cabina, también al compartir ProtocolIdentities. El escenario del controlador une sus recursos mediante closeAsync/awaitTermination. La demo no usa reflexión para modificar actores, no inyecta respuestas inventadas ni convierte impresión en transporte.
