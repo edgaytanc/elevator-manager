@@ -122,3 +122,10 @@ D22–D23 se concretan en [07 — Formato de archivo](07-formato-archivo-solicit
 D18 continúa aplicándose a solicitudes activas: el importador conserva todas las líneas válidas y su orden; no elimina repetidos. El orden es de presentación al controlador, no de servicio concurrente. T44 implementará este contrato; T43 es documental.
 
 **Siguiente lectura:** [03 — Arquitectura](03-arquitectura.md).
+
+
+## 10. Precisión T62 — 2026-11-02
+
+El contrato normativo V1 queda en [05](05-protocolo.md), versión documental 1.0.0. Se corrige la propuesta frente al dominio implementado: UUID de solicitud, época inicial 0 y revisión no negativa. IDs de comando siguen siendo long positivos únicos por sesión; reset incrementa época sin reiniciar IDs. La versión V1 aún no se ha implementado como codec, por lo que este refinamiento no rompe un transporte publicado. Estado suspendido distingue HOLD/SUSPENDED/MODE; STATE sigue siendo una proyección, no el snapshot preciso de animación.
+
+Se fijan separadores ASCII, enteros canónicos sin ceros iniciales, roles privados de productores, límite de mensaje 1 MiB, registros de retransmisión por sesión y precedencia de errores. El archivo de importación mantiene su contrato propio, incluidos sus ceros iniciales y BOM opcional; no hereda las reglas más estrictas del protocolo. El transporte efectivo, los controles tipados adicionales y las correlaciones se integrarán en T63–T65.

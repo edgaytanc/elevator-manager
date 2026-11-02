@@ -1,9 +1,9 @@
 # 05 — Protocolo textual y archivo de solicitudes
 
 - **Proyecto:** Elevator Manager.
-- **Versión:** 0.1.1; versión de mensajes V1 sin cambios. Contrato de archivo 1.0.0 en 07.
-- **Fecha:** 2026-10-19, Guatemala.
-- **Estado:** contrato propuesto; no existe emisor/receptor implementado todavía.
+- **Versión:** 1.0.0; contrato normativo T62 de mensajes V1. Contrato de archivo 1.0.0 en 07.
+- **Fecha:** 2026-11-02, Guatemala.
+- **Estado:** especificación T62 lista para revisión; codec T63 y transporte T64–T65 pendientes. El motor actual sigue usando órdenes tipadas.
 - **Base:** [02 — Decisiones](02-decisiones.md), [03 — Arquitectura](03-arquitectura.md), [04 — Asignación](04-algoritmo-asignacion.md).
 
 ## 1. Alcance y transporte
@@ -16,11 +16,11 @@ Se separan mensajes de servicio y control. Controles prioritarios despiertan esp
 
 ## 2. Reglas léxicas
 
-- Tokens ASCII en mayúsculas; no se admiten traducciones ni minúsculas en el formato persistido/transmitido.
+- Palabras reservadas y enumeraciones ASCII en mayúsculas; UUID en hexadecimal minúscula. No se admiten traducciones ni cambios de caja.
 - Separador entre tokens: uno o más espacios ASCII. No hay texto libre, comillas, tabs ni campos vacíos.
 - Se puede eliminar un terminador LF o CRLF de la línea; no aceptar saltos internos.
-- Enteros decimales sin signo, dentro de `long` positivo para IDs, épocas y revisiones; piso/ID de cabina deben caber en `int` positivo y validarse contra configuración.
-- Época inicial = 1. El controlador asigna IDs de comando únicos y crecientes para toda la sesión; no se reinician al hacer reset.
+- Enteros ASCII canónicos: `0` o `[1-9][0-9]*`, sin signo ni ceros iniciales. IDs de comando/secuencias: 1..9223372036854775807; épocas/revisiones/duraciones: 0..9223372036854775807. Piso/ID de cabina: 1..2147483647 y dentro de la configuración.
+- Época inicial de la aplicación = 0; se admite una época inicial no negativa inyectada al crear una sesión. Cada reset global usa exactamente época actual + 1. El controlador asigna IDs de comando únicos y crecientes para toda la sesión, empezando en 1; no se reinician al hacer reset. Al agotar un contador se informa fallo local y no se permite wrap-around.
 - Dirección: `UP` o `DOWN`. Fase: `IDLE`, `MOVING`, `DWELLING`, `HELD` o `TERMINATED`.
 - `-` representa ausencia exclusivamente en campos que lo permiten.
 - Cantidad de tokens exacta para cada comando; tokens adicionales son error.
@@ -41,7 +41,7 @@ V1 CMD <cmdId> EPOCH <epoch> ELEVATOR <id> STATUS
 V1 CMD <cmdId> EPOCH <epoch> ELEVATOR <id> SHUTDOWN
 ```
 
-Todos los comandos están dirigidos a una cabina; no existe destinatario ALL. El controlador emite N mensajes y coordina sus confirmaciones. Los IDs de solicitud son independientes de los IDs de comando y permiten rastrear el servicio, incluso si se retransmite una orden.
+Todos los comandos están dirigidos a una cabina; no existe destinatario ALL. El controlador emite N mensajes y coordina sus confirmaciones. Los IDs de solicitud (`requestId` y `canonicalRequestId`) son UUID en forma canónica minúscula `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`, con 32 dígitos hexadecimales y cuatro guiones. Son independientes de los IDs de comando y conservan la identidad de `Request`, `HallRequest` y `CabinRequest`. Los números 100/101 de la propuesta anterior no representan el dominio actual.
 
 | Comando | Validación y efecto |
 | --- | --- |
@@ -67,9 +67,9 @@ V1 ACK <cmdId> EPOCH <epoch> ELEVATOR <id> COALESCED <canonicalRequestId>
 V1 ERROR <cmdId|0> EPOCH <epoch|0> ELEVATOR <id|0> <errorCode>
 ```
 
-ACK confirma admisión, no desplazamiento ni finalización. `COALESCED` indica una solicitud funcional equivalente ya activa; se vincula al ID canónico y no se crea trabajo duplicado. Los campos 0 de ERROR se usan únicamente si no se pudo recuperar de manera segura el valor correspondiente del mensaje. El diagnóstico interno registra además la línea y causa, sin ejecutarla parcialmente.
+ACK confirma admisión, no desplazamiento ni finalización. `COALESCED` indica una solicitud funcional equivalente ya activa; se vincula al ID canónico y no se crea trabajo duplicado. Los campos 0 de ERROR se usan únicamente si no se pudo recuperar de manera segura el valor correspondiente del mensaje. La época 0 es válida: en ERROR solo cmdId=0 o elevatorId=0 señalan identidad desconocida; EPOCH=0 sin cmdId fiable no acredita correlación. Se recupera únicamente una cabecera completa y léxicamente válida; de otro modo los tres campos son 0. El diagnóstico interno registra causa y un prefijo limitado de la línea, sin ejecutarla parcialmente.
 
-Errores definidos: `INVALID_FORMAT`, `UNSUPPORTED_VERSION`, `UNKNOWN_COMMAND`, `INVALID_ARGUMENT`, `INVALID_FLOOR`, `INVALID_DIRECTION`, `UNKNOWN_ELEVATOR`, `STALE_EPOCH`, `FUTURE_EPOCH`, `INVALID_STATE`, `ID_CONFLICT`, `WORKER_UNAVAILABLE`, `INTERNAL_ERROR`.
+Errores definidos: `INVALID_FORMAT`, `UNSUPPORTED_VERSION`, `UNKNOWN_COMMAND`, `INVALID_ARGUMENT`, `INVALID_FLOOR`, `INVALID_DIRECTION`, `UNKNOWN_ELEVATOR`, `STALE_EPOCH`, `FUTURE_EPOCH`, `INVALID_STATE`, `ID_CONFLICT`, `WORKER_UNAVAILABLE`, `INTERNAL_ERROR`, `MESSAGE_TOO_LONG`, `UNAUTHORIZED_CONTROL`.
 
 `UNKNOWN_ELEVATOR` lo produce el enrutador si la cabina no existe. Un timeout de supervisión es una incidencia local del emisor, no una respuesta fingida del receptor.
 
@@ -100,7 +100,7 @@ V1 MOVE <seq> EPOCH <epoch> ELEVATOR <id> FROM <floor> TO <floor> DIRECTION <UP|
 V1 ARRIVED <seq> EPOCH <epoch> ELEVATOR <id> FLOOR <floor>
 V1 DIRECTION <seq> EPOCH <epoch> ELEVATOR <id> FROM <UP|DOWN> TO <UP|DOWN>
 V1 STOPPED_AT <seq> EPOCH <epoch> ELEVATOR <id> FLOOR <floor> SERVICE <UP|DOWN>
-V1 STATE <cmdId|0> EPOCH <epoch> ELEVATOR <id> REV <revision> FLOOR <floor> NEXT <floor|-> DIRECTION <UP|DOWN> PHASE <phase> REMAINING_MS <milliseconds> INTERNAL <floorList|-> EXTERNAL <callList|->
+V1 STATE <cmdId|0> EPOCH <epoch> ELEVATOR <id> REV <revision> FLOOR <floor> NEXT <floor|-> DIRECTION <UP|DOWN> PHASE <phase> SUSPENDED <MOVING|DWELLING|-> HOLD <STOP|PAUSE|-> MODE <NORMAL|RESET_RETURN> REMAINING_MS <milliseconds> INTERNAL <floorList|-> EXTERNAL <callList|->
 ```
 
 `seq` aumenta por cabina durante la sesión y permite ordenar eventos físicos. `STATE` usa cmdId de STATUS o 0 si es publicación espontánea. `floorList` es lista ascendente sin espacios, separada por comas, por ejemplo `3,7`. `callList` usa `piso:dirección`, orden por piso y UP antes de DOWN, por ejemplo `3:UP,5:DOWN`. Las listas reflejan pendientes, no solicitudes completadas. `REMAINING_MS` admite 0 y usa redondeo hacia arriba de la duración interna, sin introducir avance por el redondeo.
@@ -109,8 +109,8 @@ La snapshot interna usada por el algoritmo conserva más información de ruta/co
 
 ## 5. Épocas, idempotencia y orden
 
-1. Comando de servicio con época menor: STALE_EPOCH; con mayor: FUTURE_EPOCH. Nunca crear servicio de una época futura implícitamente.
-2. Solo RESET autorizado adopta época superior. Repetir el mismo cmdId y contenido devuelve la aceptación/resultado conocido sin volver a ejecutar el retorno.
+1. Tras comprobar identidad/retransmisión según sección 10, comando de servicio con época menor: STALE_EPOCH; con mayor: FUTURE_EPOCH. Nunca crear servicio de una época futura implícitamente.
+2. Solo RESET autorizado adopta exactamente la siguiente época. Repetir el mismo cmdId y contenido devuelve la aceptación/resultado conocido sin volver a ejecutar el retorno.
 3. Reset invalida trabajo previo antes de admitir nuevas órdenes. Sus cancelaciones usan la época original para correlación histórica, pero no modifican el estado global nuevo.
 4. Mismo cmdId con contenido diferente: ID_CONFLICT, sin mutación. Durante una sesión conservar un registro de resultados de comandos suficiente para deduplicar las retransmisiones; si se introduce purga, habrá que definir una ventana de reintentos antes de purgar.
 5. Si se reintenta por demora, usar el mismo cmdId. No generar otro ID para el mismo comando ante un resultado desconocido. Preferir STATUS y diagnóstico antes de reasignar una recogida que pudiera haberse aceptado.
@@ -123,14 +123,14 @@ La snapshot interna usada por el algoritmo conserva más información de ruta/co
 Configuración: N ≥ 2, P ≥ 7, época 1, sistema RUNNING. Estado previo: cabina 2 inmóvil en piso 7/UP.
 
 ```text
-V1 CMD 42 EPOCH 1 ELEVATOR 2 PICKUP 100 7 DOWN
+V1 CMD 42 EPOCH 1 ELEVATOR 2 PICKUP 00000000-0000-0000-0000-000000000100 7 DOWN
 V1 ACK 42 EPOCH 1 ELEVATOR 2 ACCEPTED
 V1 DIRECTION 1 EPOCH 1 ELEVATOR 2 FROM UP TO DOWN
 V1 STOPPED_AT 2 EPOCH 1 ELEVATOR 2 FLOOR 7 SERVICE DOWN
 V1 EVENT 42 EPOCH 1 ELEVATOR 2 COMPLETED
 ```
 
-El trabajador queda en DWELLING hasta agotar el tiempo de parada; la solicitud ya fue recogida. Después podría recibirse un destino interno como `V1 CMD 43 EPOCH 1 ELEVATOR 2 DESTINATION 101 4`. Estos ejemplos son referencias de formato, no trazas generadas por el programa.
+El trabajador queda en DWELLING hasta agotar el tiempo de parada; la solicitud ya fue recogida. Después podría recibirse un destino interno como `V1 CMD 43 EPOCH 1 ELEVATOR 2 DESTINATION 00000000-0000-0000-0000-000000000101 4`. Estos ejemplos son referencias de formato, no trazas generadas por el programa.
 
 ## 7. Formato de archivo de solicitudes
 
@@ -159,5 +159,189 @@ Pruebas previstas: round-trip por cada comando, aridad, valores fuera de rango, 
 | --- | --- | --- |
 | 0.1.0 | 2026-10-19 | Gramática V1, resultados, control de épocas y formato transaccional de archivos. |
 | 0.1.1 | 2026-10-28 | T43: sección 7 delega el contrato de archivo completo a 07; mensajes V1 sin cambios. |
+| 1.0.0 | 2026-11-02 | T62: UUID, época 0, léxico canónico, framing, estado suspendido, errores deterministas y escenarios de interoperabilidad. Reemplaza la propuesta aún no implementada. |
 
 **Siguiente lectura:** [06 — Plan de pruebas](06-pruebas.md).
+
+
+## 10. Reglas normativas de interoperabilidad T62
+
+Las palabras «debe» y «rechaza» son obligatorias para un emisor/receptor V1. Esta sección resuelve los detalles abiertos de la propuesta de octubre; prevalece sobre ella y sobre ejemplos conceptuales antiguos del plan. No acredita implementación textual. Se usan N y P de la misma configuración inmutable de sesión en ambos extremos.
+
+### 10.1 Framing y forma canónica
+
+Un elemento de la cola contiene exactamente un mensaje completo. El codificador produce ASCII (subconjunto de UTF-8), un espacio U+0020 entre tokens, sin espacios exteriores ni terminador. El receptor admite varios espacios entre tokens y un único LF o CRLF al final; rechaza espacios exteriores, tabuladores, BOM, CR aislado, caracteres no ASCII, líneas vacías, comentarios y saltos internos. No se usa `trim()` para convertir una entrada inválida en válida. No se admiten concatenaciones de mensajes en un elemento. Al usar un stream futuro, el adaptador separará LF/CRLF antes de entregar cada elemento, sin cambiar la gramática.
+
+Máximo: 1,048,576 bytes por elemento, incluido el terminador opcional; el límite exacto se admite si el mensaje es válido. El exceso produce MESSAGE_TOO_LONG antes de tokenizar, con cabecera 0/0/0, sin truncamiento ni ejecución. No se trocea STATE: si su serialización excede el límite, STATUS admitido termina FAILED MESSAGE_TOO_LONG sin publicar un estado parcial. Las publicaciones espontáneas imposibles se omiten con incidencia local. Este límite de transporte no limita N/P del modelo ni cambia el formato de importación. El diagnóstico conserva como máximo 256 caracteres de entrada escapados, sin volcar megabytes a la GUI.
+
+El parser reconoce únicamente los nombres y posiciones de campos de las secciones 3 y 4. Los símbolos `<...>`, `|` y los nombres de tipos pertenecen al documento, nunca al cable. UUID usa `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`; no se exige una versión UUID particular. No se convierte un número en UUID. `-` solo vale en NEXT, SUSPENDED, HOLD, INTERNAL y EXTERNAL. La ausencia no equivale a lista vacía representada por un token vacío.
+
+| Familia | Cantidad exacta de tokens |
+| --- | --- |
+| CMD PICKUP / DESTINATION / control | 11 / 10 / 8 |
+| ACK ACCEPTED / COALESCED | 8 / 9 |
+| ERROR | 8 |
+| EVENT COMPLETED / CANCELLED / FAILED | 8 / 9 / 9 |
+| MOVE / ARRIVED / DIRECTION / STOPPED_AT | 13 / 9 / 11 / 11 |
+| STATE | 29 |
+
+La aridad se cuenta separando por uno o más espacios ASCII. Los literales intermedios son obligatorios: `EPOCH`, `ELEVATOR`, `FROM`, `TO`, etc. Los tokens numéricos se validan por dígitos y rango antes de convertirlos. Una cabecera válida tiene exactamente el prefijo `V1 CMD <positiveLong> EPOCH <nonnegativeLong> ELEVATOR <positiveInt>`.
+
+### 10.2 Identidad, versión y contenido operativo
+
+La sesión es el contexto de canales en memoria, no un campo transmitido. No se reutilizan canales ni respuestas de una sesión anterior aunque su contador coincida. No hay negociación: V1 es la única versión; otro token de versión bien formado `V` seguido de dígitos produce UNSUPPORTED_VERSION. Un token de versión con otra forma es INVALID_FORMAT. Todo el retorno usa V1.
+
+La clave de comando es `(sesión, cmdId)` y su contenido incluye época, destinatario, verbo, UUID y argumentos presentes. Comparar tokens normalizados, no espaciado ni terminador. Un emisor único de IDs compartido por controlador/manejador evita colisiones; no hace falta que la recepción vea números consecutivos o crecientes, porque los emisores son concurrentes. El enrutador conserva el destinatario junto a esa clave para detectar reutilización en otra cabina. Un ERROR por ID_CONFLICT no invalida el comando original.
+
+El UUID de solicitud conserva su identidad en retransmisión; para un mismo UUID, tipo, época, cabina asignada, piso y dirección deben coincidir. Inconsistencia produce ID_CONFLICT. Una recogida puede reasignarse solo después de cancelación confirmada y con identidad nueva; un timeout no demuestra cancelación. Un UUID canónico en COALESCED debe identificar trabajo equivalente activo de esa cabina y época. Nuevas solicitudes después del servicio usan otro UUID.
+
+Los campos transportados son operativos. `createdAt` del dominio no está en V1 ni se usa para asignar costo/orden: un codec debe modelar un DTO de protocolo sin inventar una fecha de emisión ni regenerar el UUID. El adaptador al dominio conserva metadatos de sesión cuando los tenga; no se promete round-trip de campos nunca transmitidos. T63 debe probar round-trip del DTO y todos sus campos, no equiparar `Request.equals` (identidad UUID) a igualdad de contenido.
+
+### 10.3 Validación y errores deterministas
+
+El receptor de comandos aplica el siguiente orden y devuelve un único ERROR en el primer paso que falla. El rechazo no modifica agenda, estado físico ni época.
+
+1. Límite, framing y léxico permitido: MESSAGE_TOO_LONG o INVALID_FORMAT.
+2. Versión: UNSUPPORTED_VERSION o INVALID_FORMAT según 10.2.
+3. Familia CMD y cabecera completa: INVALID_FORMAT. La cola de órdenes no acepta ACK/EVENT/STATE como órdenes.
+4. Verbo: UNKNOWN_COMMAND; luego aridad y etiquetas exactas: INVALID_FORMAT.
+5. Tipos de argumentos: INVALID_ARGUMENT para número no canónico, desbordamiento o UUID inválido; INVALID_DIRECTION para sentido distinto de UP/DOWN.
+6. Configuración: UNKNOWN_ELEVATOR si el destino no existe, luego INVALID_FLOOR si piso no pertenece a 1..P, luego INVALID_DIRECTION para UP en P o DOWN en 1. Para P=1 no hay PICKUP válido; DESTINATION a 1 sí puede admitirse en RUNNING.
+7. Registro de comandos: ID_CONFLICT si misma clave con contenido diferente; si mismo contenido, reproducir ACK/resultado conocido sin ejecutar. Esta comprobación precede a la época/estado actual para permitir reintentar un comando histórico terminado. Los rechazos no reservan cmdId; los comandos admitidos sí.
+8. Autoridad: controles solo por el canal privado del controlador; UNAUTHORIZED_CONTROL si otro emisor intenta usarlos. PICKUP solo por el manejador; DESTINATION solo por el controlador. Un productor con rol incorrecto recibe UNAUTHORIZED_CONTROL, también para servicio. El rol es contexto del canal, nunca un token que el mensaje se autoconcede. Los replays también verifican el rol original antes de responder.
+9. Época: STALE_EPOCH si menor, FUTURE_EPOCH si mayor. RESET nuevo requiere exactamente actual+1: menor es STALE_EPOCH, igual es INVALID_STATE, mayor que siguiente es FUTURE_EPOCH. Solo SHUTDOWN autorizado puede usar una época distinta, manteniendo la época de su comando en ACK/terminal.
+10. Disponibilidad y estado: WORKER_UNAVAILABLE para trabajador terminado/canal cerrado; INVALID_STATE para transición no habilitada. Un cierre ya admitido puede reproducirse desde el registro aunque el actor haya terminado. Excepciones inesperadas al admitir producen INTERNAL_ERROR y diagnóstico local; nunca se deja morir un trabajador por un mensaje inválido.
+
+Para cabecera recuperable, ERROR copia los tres valores originales; no sustituye EPOCH por la época vigente. Sin cabecera completa, los tres son 0. La cabecera es recuperable incluso si el verbo o su cuerpo son inválidos. Una versión no soportada no tiene cabecera V1 recuperable y usa 0/0/0. Un destinatario inexistente conserva su ID positivo solicitado.
+
+Si el error ocurre después de ACK, se emite EVENT FAILED, no ERROR retroactivo. Un error de parseo en un canal de respuestas se diagnostica y descarta sin responder ERROR a ERROR (evitar bucles). Para respuestas válidas, el consumidor verifica cabina, época e ID esperados antes de cambiar seguimiento. Los códigos de error y las razones de CANCELLED son conjuntos cerrados de la sección 4; una palabra ajena es INVALID_ARGUMENT al decodificar.
+
+### 10.4 Controles, estado y prioridades
+
+El controlador reserva la transición global antes de enviar controles. Los estados de esta tabla son los de `SimulationState` del coordinador, no los de `ElevatorPhase`. La precondición se comprueba al admitir bajo coordinación con reset/cierre; un ACK no autoriza una transición global que el coordinador no haya iniciado.
+
+| Orden | Estado global que habilita su envío | Efecto y condición de finalización |
+| --- | --- | --- |
+| PICKUP / DESTINATION | RUNNING | Añadir o coalescer servicio de época vigente; completar al iniciar la parada compatible. |
+| START | RESET / STOPPED | Habilitar trabajador; COMPLETED al quedar habilitado. El lote RESET se presenta por el controlador, no por el codec. |
+| STOP | RUNNING / PAUSING / PAUSED | Detener despacho. Completar tramo adyacente iniciado; suspender parada iniciada con restante; no iniciar otra recogida. COMPLETED en frontera segura. |
+| PAUSE | RUNNING | Congelar tiempo activo/tramo/parada, confirmar barrera. COMPLETED al quedar congelado; no crea ni elimina solicitudes. |
+| RESUME | PAUSED | Habilitar tiempo activo y continuar fase restante; no confundir con START desde STOPPED. |
+| RESET | RESET / RUNNING / STOPPING / STOPPED / PAUSING / PAUSED / RESETTING | Adoptar siguiente época y cancelar trabajo viejo; completar tramo iniciado coherentemente y retornar físicamente a 1/UP. Termina en RESET esperando Start. Un nuevo reset puede sustituir retorno previo. |
+| STATUS | Cualquier estado hasta CLOSING mientras receptor vivo | Capturar una instantánea coherente; emitir STATE correlacionado y luego COMPLETED. |
+| SHUTDOWN | Cualquier estado salvo CLOSED | Cancelar pendientes y terminar cooperativamente; COMPLETED antes de terminar hilo. CLOSED exige además join real de todos los hilos. |
+
+Repetir START estando RUNNING, STOP estando STOPPED, PAUSE estando PAUSED o RESUME estando RUNNING con un cmdId nuevo produce INVALID_STATE. Repetir el mismo cmdId conserva idempotencia. STOP puede sustituir pausa; cierre sustituye cualquier control y RESET sustituye Stop/pausa. Para controles del mismo nivel prevalece el orden de admisión; RESET nuevo sustituye RESET viejo. El control sustituido que aún no terminó recibe CANCELLED SUPERSEDED. Un control ya completado no recibe otro terminal.
+
+Al admitir RESET se cancelan comandos de servicio activos con CANCELLED RESET y su época original, incluidos aliases coalescidos; se invalida la entrada vieja en vuelo. Tras ACK del reset, el trabajador ya adoptó su época, pero falta el retorno. El controlador espera exactamente los cmdIds de las N cabinas y la confirmación del manejador antes de publicar RESET global. Durante RESETTING no se admite servicio, aunque una cabina haya llegado antes. SHUTDOWN cancela servicio con SHUTDOWN. Las cancelaciones no borran el registro de resultados.
+
+No se espera respuesta manteniendo un bloqueo global. Colas separadas permiten despertar al trabajador pausado o detenido para controles. El canal de control conserva FIFO por productor; los controles prioritarios pueden adelantar servicio, por eso el emisor no infiere ejecución a partir del orden de encolado. Se mantiene un hilo por cabina y uno de manejador; no se crea un hilo por mensaje.
+
+### 10.5 Estado público y eventos
+
+STATE tiene los campos y orden exactos siguientes; no permite omisiones ni pares clave/valor adicionales:
+
+```text
+V1 STATE 90 EPOCH 0 ELEVATOR 1 REV 8 FLOOR 2 NEXT 3 DIRECTION UP PHASE HELD SUSPENDED MOVING HOLD PAUSE MODE NORMAL REMAINING_MS 450 INTERNAL 5 EXTERNAL 3:UP
+```
+
+REV empieza en 0 y no disminuye durante la sesión. Dos snapshots con la misma revisión pueden informar menor restante al avanzar el reloj activo sin transición discreta: no descartarlos solo por igualdad de REV. Dentro de cada canal se conserva FIFO; con época menor se ignora el estado para la sesión vigente; revisión menor de misma época se descarta. Una respuesta STATUS histórica se puede entregar al solicitante como histórica sin instalarla como estado actual. No comparar revisiones de distintas cabinas.
+
+Si PHASE=HELD, SUSPENDED es MOVING o DWELLING y HOLD es STOP o PAUSE; HOLD=STOP nunca admite SUSPENDED=MOVING. Fuera de HELD ambos son `-`. NEXT se presenta exactamente si la fase efectiva es MOVING y es el piso adyacente según dirección; FLOOR conserva el último piso dejado hasta ARRIVED. En otros casos NEXT es `-`. MODE=RESET_RETURN y PHASE=TERMINATED exigen listas vacías. REMAINING_MS=0 en IDLE/TERMINATED; en MOVING/DWELLING/HELD pertenece a 0..duración configurada de la fase efectiva y es techo de nanosegundos restantes dividido por 1,000,000, sin suma que desborde. No se serializa nanoTime como fecha civil.
+
+INTERNAL usa pisos únicos ascendentes separados por coma; EXTERNAL usa pares únicos `piso:UP`/`piso:DOWN` ordenados por piso, UP antes de DOWN. Sin espacios interiores ni comas finales; vacío es `-`. Validar rango y sentidos extremos de cada entrada. Estas listas muestran pendientes por función, no orden de servicio ni UUID. STATE es una proyección de consulta, no reemplaza `ElevatorSnapshot` de planificación/animación: no contiene frontera comprometida, reloj preciso ni duración total. La GUI conserva su publicación inmutable de alta precisión.
+
+MOVE usa FROM/TO adyacentes coherentes con DIRECTION. ARRIVED indica llegada lógica; STOPPED_AT indica inicio del servicio en FLOOR con el sentido de servicio (también para destino interno), no fin de la espera. DIRECTION solo se emite si cambia el sentido. `seq` físico es único y creciente por cabina, empieza en 1, no se reinicia por reset y puede tener huecos porque otros eventos internos no se transmiten. No se interpreta REV como `seq` ni cmdId. ACK y terminales conservan la época del comando; eventos físicos/STATE espontáneo usan la vigente al capturar. Un lector de respuestas valida léxico, aridad, enumeraciones y coherencia con configuración, sin aplicar precondiciones de admisión como RUNNING o época vigente a eventos históricos válidos.
+
+### 10.6 Retransmisión, coalescencia y resultados
+
+Cada orden admitida produce un ACK antes de sus propios STATE/terminales. Para STATUS: ACK, STATE correlacionado, COMPLETED. No se exige orden global entre mensajes de distintas órdenes/cabinas. ACCEPTED y COALESCED son excluyentes. Una repetición de orden activa reproduce el mismo ACK; de orden terminal reproduce el ACK y el mismo terminal; STATUS reproduce además el STATE original, sin tomar una consulta nueva bajo el mismo ID. Una nueva consulta debe usar otro cmdId.
+
+El receptor conserva el registro durante toda la sesión; no hay purga ni reintentos automáticos infinitos. Los consumidores deduplican terminales por cmdId/época/cabina y no reducen dos veces un contador de pendientes. ERROR es rechazo previo a admisión y no exige EVENT posterior. Un comando admitido debe acabar en COMPLETED, CANCELLED o FAILED si el proceso sigue operativo; un fallo fatal de JVM no permite garantizar una respuesta. El supervisor detecta timeout como fallo local, nunca inventa ACK/terminal del actor.
+
+Una solicitud equivalente es DESTINATION de igual cabina/piso o PICKUP de igual cabina/piso/sentido, en la misma época y todavía activa. Distinto UUID/cmdId recibe COALESCED con UUID canónico. Su resultado sigue al del trabajo canónico y todos sus cmdIds reciben terminal propio. Si una solicitud ya empezó servicio, terminó lógicamente y no se coalesce retroactivamente. Repetir mismo cmdId reproduce su resultado aunque la cabina esté ahora en otro piso o época.
+
+## 11. Ejemplos de conformidad T62
+
+Son vectores documentales, no trazas ejecutadas. N=2, P=8, época 0, tiempo entre pisos/parada al menos 450 ms. Cada escenario es independiente salvo sus propias líneas. Las líneas se muestran en orden causal; no representan una garantía de ausencia de eventos adicionales.
+
+### 11.1 Admisión y duplicado funcional
+
+Cabina 1 RUNNING en piso 1/UP. No empieza el servicio a 5 entre estas admisiones.
+
+```text
+V1 CMD 10 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000010 5
+V1 ACK 10 EPOCH 0 ELEVATOR 1 ACCEPTED
+V1 CMD 11 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000011 5
+V1 ACK 11 EPOCH 0 ELEVATOR 1 COALESCED 00000000-0000-0000-0000-000000000010
+V1 EVENT 10 EPOCH 0 ELEVATOR 1 COMPLETED
+V1 EVENT 11 EPOCH 0 ELEVATOR 1 COMPLETED
+```
+
+Los terminales suceden al iniciar servicio a 5, tras el movimiento omitido del ejemplo. Si se reenvía el primer CMD después de terminar, se reproducen ACK 10 ACCEPTED y EVENT 10 COMPLETED sin crear otra parada.
+
+### 11.2 Reset con orden en vuelo y cancelación
+
+La cabina aún tiene activa la orden 20 al admitir reset 21; el productor autorizado inicia transición global a época 1.
+
+```text
+V1 CMD 20 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000020 8
+V1 ACK 20 EPOCH 0 ELEVATOR 1 ACCEPTED
+V1 CMD 21 EPOCH 1 ELEVATOR 1 RESET
+V1 ACK 21 EPOCH 1 ELEVATOR 1 ACCEPTED
+V1 EVENT 20 EPOCH 0 ELEVATOR 1 CANCELLED RESET
+V1 CMD 22 EPOCH 0 ELEVATOR 1 PICKUP 00000000-0000-0000-0000-000000000022 3 UP
+V1 ERROR 22 EPOCH 0 ELEVATOR 1 STALE_EPOCH
+V1 EVENT 21 EPOCH 1 ELEVATOR 1 COMPLETED
+```
+
+El último evento exige retorno físico a 1/UP. La barrera global todavía espera las otras cabinas y el manejador. Retransmitir CMD 20 devuelve su ACK y CANCELLED históricos, sin reinstalar su solicitud en época 1.
+
+### 11.3 Consulta en pausa
+
+Cabina HELD/MOVING hacia 3, tiempo restante 450 ms y solicitudes pendientes que muestra STATE; coordinador PAUSED.
+
+```text
+V1 CMD 90 EPOCH 0 ELEVATOR 1 STATUS
+V1 ACK 90 EPOCH 0 ELEVATOR 1 ACCEPTED
+V1 STATE 90 EPOCH 0 ELEVATOR 1 REV 8 FLOOR 2 NEXT 3 DIRECTION UP PHASE HELD SUSPENDED MOVING HOLD PAUSE MODE NORMAL REMAINING_MS 450 INTERNAL 5 EXTERNAL 3:UP
+V1 EVENT 90 EPOCH 0 ELEVATOR 1 COMPLETED
+V1 CMD 91 EPOCH 0 ELEVATOR 1 RESUME
+V1 ACK 91 EPOCH 0 ELEVATOR 1 ACCEPTED
+V1 EVENT 91 EPOCH 0 ELEVATOR 1 COMPLETED
+```
+
+STATUS no reanuda el reloj. RESUME es del controlador; solo cuando toda la barrera esté lista vuelve el coordinador a RUNNING.
+
+### 11.4 Rechazos completos y precedencia
+
+Cada fila tiene registro vacío, RUNNING y época 0, excepto donde se indica. En la fila de conflicto ya se admitió `CMD 10 ... DESTINATION ...0010 5` de 11.1.
+
+| Entrada completa | Respuesta completa esperada |
+| --- | --- |
+| `V2 CMD 1 EPOCH 0 ELEVATOR 1 STATUS` | `V1 ERROR 0 EPOCH 0 ELEVATOR 0 UNSUPPORTED_VERSION` |
+| `V1 CMD 1 EPOCH 0 ELEVATOR 1 FLY` | `V1 ERROR 1 EPOCH 0 ELEVATOR 1 UNKNOWN_COMMAND` |
+| `V1 CMD 2 EPOCH 0 ELEVATOR 1 RESET EXTRA` | `V1 ERROR 2 EPOCH 0 ELEVATOR 1 INVALID_FORMAT` |
+| `V1 CMD 3 EPOCH 0 ELEVATOR 1 DESTINATION 123 2` | `V1 ERROR 3 EPOCH 0 ELEVATOR 1 INVALID_ARGUMENT` |
+| `V1 CMD 4 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000004 9` | `V1 ERROR 4 EPOCH 0 ELEVATOR 1 INVALID_FLOOR` |
+| `V1 CMD 5 EPOCH 0 ELEVATOR 1 PICKUP 00000000-0000-0000-0000-000000000005 1 DOWN` | `V1 ERROR 5 EPOCH 0 ELEVATOR 1 INVALID_DIRECTION` |
+| `V1 CMD 6 EPOCH 0 ELEVATOR 3 STATUS` | `V1 ERROR 6 EPOCH 0 ELEVATOR 3 UNKNOWN_ELEVATOR` |
+| `V1 CMD 7 EPOCH 1 ELEVATOR 1 STATUS` | `V1 ERROR 7 EPOCH 1 ELEVATOR 1 FUTURE_EPOCH` |
+| `V1 CMD 8 EPOCH 0 ELEVATOR 1 START` | `V1 ERROR 8 EPOCH 0 ELEVATOR 1 INVALID_STATE` |
+| `V1 CMD 10 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000010 6` | `V1 ERROR 10 EPOCH 0 ELEVATOR 1 ID_CONFLICT` |
+| `V1 CMD 0 EPOCH 0 ELEVATOR 1 STATUS` | `V1 ERROR 0 EPOCH 0 ELEVATOR 0 INVALID_FORMAT` |
+| `V1 CMD 9 EPOCH 0 ELEVATOR 1 DESTINATION 00000000-0000-0000-0000-000000000009 02` | `V1 ERROR 9 EPOCH 0 ELEVATOR 1 INVALID_ARGUMENT` |
+
+No aplicar simultáneamente varios errores de filas distintas. Ejemplo de precedencia: cuerpo con piso 9 y destinatario 3 produce UNKNOWN_ELEVATOR, pues destino se verifica antes que rango de piso.
+
+## 12. Entrega por tarjetas y aceptación
+
+| Tarjeta | Resultado esperado |
+| --- | --- |
+| T62 | Este contrato revisable, ejemplos, trazabilidad y matriz de pruebas futuras. Sin cambio Java. |
+| T63 | DTOs/codec de todas las familias aquí definidas, errores controlados y round-trip canónico. |
+| T64 | Cadenas reales cruzando colas; parseo en la frontera del trabajador. |
+| T65 | Adaptación de controles, ACK/terminales, snapshots y barreras de época sin perder correlaciones. |
+| T66 | Demostración reproducible de integración, errores y reset con mensajes en vuelo. |
+
+T62 satisface la definición documental cuando versión, framing, tipos, aridades, autoridad, identidad, estado y cada resultado permiten construir extremos compatibles sin leer Java. El extra 3 solo se acredita al integrar y demostrar T64–T66. El archivo HALL/CABIN de 07 no admite estas líneas V1 ni sirve como transporte textual entre actores.

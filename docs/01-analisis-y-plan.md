@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–8 cerradas. Fase 9 en curso: T56 incorporada en `7dfb8e5`, 28/838 pruebas Maven satisfactorias y árbol limpio; recorrido nativo parcial documentado. T57 implementada como aceptación temporal, pendiente de Maven local y cierre de la aceptación nativa restante.
+- **Estado:** fases 1–10 cerradas por confirmación de David. T61 registrada en `dbea15a`; contexto previo reporta 16 específicas/926 totales y BUILD SUCCESS. Fase 11 iniciada: T62 especificada documentalmente, pendiente de revisión local; T63–T66 pendientes.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -289,7 +289,7 @@ elevator-manager/
 - [x] **T58 — Diseñar el panel gráfico del edificio.** Etiqueta: EXTRA-2. Representar pisos etiquetados y un hueco/cabina por elevador, adaptando escala y desplazamiento. **Aceptación:** visualización correcta con P = 1 y con varias cabinas/pisos.
 - [x] **T59 — Implementar animación del desplazamiento.** Etiqueta: EXTRA-2. Interpolar posición con el avance temporal del modelo y refrescar con temporizador Swing. **Aceptación:** la animación coincide con salida/llegada y no modifica por sí misma el piso lógico.
 - [x] **T60 — Sincronizar animación, pausa, Stop y reset.** Etiqueta: EXTRA-2. Congelar y continuar posición según cada control y animar el retorno físico. **Aceptación:** no hay saltos por tiempo de pared acumulado durante pausa y el reset se observa de vuelta al piso 1.
-- [ ] **T61 — Verificar claridad y rendimiento visual.** Etiqueta: CALIDAD. Revisar tamaño de ventana, textos, desplazamiento, refrescos y uso de recursos. **Aceptación:** las cabinas se distinguen por ID, la GUI responde y la animación no crea hilos extra por fotograma.
+- [x] **T61 — Verificar claridad y rendimiento visual.** Etiqueta: CALIDAD. Revisar tamaño de ventana, textos, desplazamiento, refrescos y uso de recursos. **Aceptación:** las cabinas se distinguen por ID, la GUI responde y la animación no crea hilos extra por fotograma.
 
 ### Fase 11 — Implementar protocolo textual, extra 3
 
@@ -394,18 +394,18 @@ CABIN 2 4
 
 ### 9.2 Mensajes entre manejador y elevadores
 
-Ejemplo conceptual que se debe formalizar en T62:
+Contrato normativo T62: [05 — Protocolo textual](05-protocolo.md). Ejemplo con UUID y época inicial 0:
 
 ```text
-V1 CMD 42 EPOCH 3 ELEVATOR 2 PICKUP 7 DOWN
-V1 ACK 42 EPOCH 3 ELEVATOR 2 ACCEPTED
-V1 EVENT 42 EPOCH 3 ELEVATOR 2 PICKUP_COMPLETED 7 DOWN
-V1 CMD 43 EPOCH 3 ELEVATOR 2 DESTINATION 4
-V1 CMD 44 EPOCH 4 ELEVATOR 2 RESET
-V1 ERROR 45 EPOCH 4 ELEVATOR 2 INVALID_FLOOR
+V1 CMD 42 EPOCH 0 ELEVATOR 2 PICKUP 00000000-0000-0000-0000-000000000100 7 DOWN
+V1 ACK 42 EPOCH 0 ELEVATOR 2 ACCEPTED
+V1 EVENT 42 EPOCH 0 ELEVATOR 2 COMPLETED
+V1 CMD 43 EPOCH 0 ELEVATOR 2 DESTINATION 00000000-0000-0000-0000-000000000101 4
+V1 CMD 44 EPOCH 1 ELEVATOR 2 RESET
+V1 ERROR 45 EPOCH 1 ELEVATOR 2 INVALID_FLOOR
 ```
 
-El receptor debe definir tokens exactos, argumentos, errores y mensajes de estado; los ejemplos no sustituyen la gramática. `EPOCH` invalida trabajo anterior y debe coordinarse en todo el sistema. No se necesitan sockets: colas de cadenas entre hilos satisfacen el transporte textual si los comandos se serializan y parsean de verdad.
+Las líneas ilustran formatos, no una traza ejecutada. COMPLETED de recogida significa inicio del servicio; ACK solo admisión. El transporte real sobre colas de cadenas sigue pendiente de T64–T65.
 
 ## 10. Riesgos concretos y controles
 
@@ -597,4 +597,9 @@ Se publica una referencia inmutable y volatile del reloj activo que BuildingPane
 
 ## Implementación T61 — Claridad y rendimiento visual
 
-Se verifican raster, fuentes, viewport, desplazamiento, repintados, respuesta del EDT e identidad/cierre de hilos. BuildingPanel fija pisos e IDs al área visible, adapta el espacio a fuentes/IDs largos y evita títulos parcialmente recortados junto al margen. Una caché limitada a columnas visibles omite fotogramas idénticos en pausa, reposo y movimientos subpíxel; las pestañas ocultas no solicitan animación. No se añaden hilos ni temporizadores. Se incorporan 16 casos JUnit: total Maven esperado 926. Las mediciones de dibujo headless, pulsos y recursos se documentan como tales, sin prometer FPS de escritorio. Ver [implementación](implementacion/T61-claridad-y-rendimiento-visual.md), [código completo](implementacion/T61-codigo-completo.md), [validación](comprobaciones/T61-validacion-local.md), [mediciones](comprobaciones/T61-resultados-locales.md), [recorrido GUI](comprobaciones/T61-recorrido-gui.md) y [aceptación de fase 10](comprobaciones/T61-aceptacion-fase-10.md). T61 se entrega implementada y pendiente de validación/aceptación local; la fase 10 no se declara cerrada y T62 no se inicia.
+Se verifican raster, fuentes, viewport, desplazamiento, repintados, respuesta del EDT e identidad/cierre de hilos. BuildingPanel fija pisos e IDs al área visible, adapta el espacio a fuentes/IDs largos y evita títulos parcialmente recortados junto al margen. Una caché limitada a columnas visibles omite fotogramas idénticos en pausa, reposo y movimientos subpíxel; las pestañas ocultas no solicitan animación. No se añaden hilos ni temporizadores. Se incorporan 16 casos JUnit: total Maven esperado 926. Las mediciones de dibujo headless, pulsos y recursos se documentan como tales, sin prometer FPS de escritorio. Ver [implementación](implementacion/T61-claridad-y-rendimiento-visual.md), [código completo](implementacion/T61-codigo-completo.md), [validación](comprobaciones/T61-validacion-local.md), [mediciones](comprobaciones/T61-resultados-locales.md), [recorrido GUI](comprobaciones/T61-recorrido-gui.md) y [aceptación de fase 10](comprobaciones/T61-aceptacion-fase-10.md). Estado histórico de entrega T61: entonces pendiente de validación local. Actualización T62: David confirma el cierre de fases 1–10 y fluidez, desplazamiento y redimensionado correctos; el ZIP actualizado contiene el commit `dbea15a`. No se atribuyen nuevas capturas ni mediciones de Windows a este entorno.
+
+
+## Avance T62 — Especificación del protocolo, 2026-11-02
+
+Se inicia fase 11. [05](05-protocolo.md) pasa de propuesta a contrato V1 1.0.0: UUID reales, época inicial 0, gramática de órdenes/respuestas/estado, léxico, correlación, errores, prioridades, retransmisiones y finalización. [Ficha](implementacion/T62-gramatica-y-semantica-protocolo.md) y [validación documental](comprobaciones/T62-validacion-documental.md). T62 queda en revisión documental, sin marcarla terminada anticipadamente. T63 será la siguiente tarjeta tras revisar este contrato. No se modifica Java ni se afirma que exista transporte textual integrado.

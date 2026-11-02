@@ -33,3 +33,8 @@ Las capturas estáticas acreditan los estados y la presentación visibles. No se
 Seguir T61-recorrido-gui.md y conservar las líneas de mediciones emitidas. No hace falta atribuir al escritorio los números de Linux. Una incidencia debe quedar registrada antes de decidir el cierre.
 
 Tras confirmar estos puntos, actualizar el acta y el plan, marcar T61 completada y declarar cerrada la fase 10. La siguiente tarjeta será T62 — Especificar gramática y semántica del protocolo, inicio de fase 11. No se implementa ni se da por iniciada T62 en esta entrega.
+
+
+## Actualización recibida al iniciar T62 — 2026-11-02
+
+David declara cerradas las fases 1–10 y solicita T62. El contexto recuperado registra T61 en `dbea15a`, 16 pruebas específicas, 926 totales, BUILD SUCCESS y árbol limpio; el ZIP adjunto confirma ese commit como HEAD. David confirmó fluidez, desplazamiento y redimensionado correctos. Se registra el cierre de fase 10 por esa aceptación. Las tablas anteriores describen los pendientes de la entrega original, no el estado vigente. Esta actualización no inventa resultados detallados para cada recorrido nativo ni sustituye las evidencias originales.

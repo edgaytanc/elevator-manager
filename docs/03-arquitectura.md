@@ -410,3 +410,10 @@ RequestImportHandler recibe un selector sin I/O de contenido, invocado en EDT. S
 RequestFileReader conserva su API pública y usa Files.newInputStream por defecto. Un InputOpener final, inyectable solo desde el paquete, permite comprobar denegación, lectura parcial, cierre y causas suprimidas en tests reproducibles. No se añade un ejecutor, no se relajan permisos y no se consulta Files.isReadable como autorización: el resultado real de abrir/leer manda.
 
 Los ejemplos se guardan una sola vez en src/main/resources/examples/requests y los tests los cargan por classloader, por lo que no dependen del directorio de ejecución. Las pruebas de integración los copian a archivos temporales para usar la API pública de importación. El cierre del diagnóstico reutiliza WindowCloseHandler y espera al controlador antes de disponer la ventana.
+
+
+## Precisión T62 — Contrato de la frontera textual
+
+[05 — Protocolo](05-protocolo.md) es la referencia normativa V1. T63 crea DTOs y codec; T64 cruza la frontera con cadenas; T65 enlaza respuestas y controles a la coordinación existente. Hasta entonces `Command` tipado y los canales de control actuales conservan su ejecución. La capa de protocolo no depende de Swing ni reemplaza el reloj monotónico, la publicación de `ElevatorSnapshot`, la herencia Request/HallRequest/CabinRequest ni los hilos existentes.
+
+Identidad de sesión/rol se obtiene del canal privado, no de tokens autodeclarados. El enrutador conserva cmdId/destino para detectar conflictos entre cabinas. El registro de idempotencia del transporte debe sobrevivir reset y conservar el resultado histórico; el ledger de servicio existente no se presume equivalente sin adaptar y probar. STATE es público y compacto: no sirve para reconstruir el planificador o interpolar con precisión. La instantánea de STATUS se conserva para replay y no se instala como actual si su época/revisión quedó obsoleta.

@@ -219,3 +219,29 @@ T44 ya tiene 48 pruebas específicas y 506 acumuladas confirmadas por David en `
 Se agregan 32 escenarios en ReadFailureTest (12), FileSelectionTest (12) e ImportReadErrorTest (8), con sus main independientes. Cubren los 22 archivos distribuidos, causas de apertura/lectura/cierre, recuperación del lote, cancelación del selector, callbacks EDT, respuesta diferida y ejecución real de los siete archivos válidos. El acceso denegado se inyecta como AccessDeniedException en el lector, sin omitir su lógica ni cambiar permisos del proyecto.
 
 La regresión independiente cuenta 533 escenarios en 27 grupos. Los recursos también se verifican dentro de un JAR auxiliar ejecutado desde otro directorio. No se ejecutó Maven ni un JFileChooser nativo en este entorno; T46 espera 578 pruebas acumuladas y una revisión visual del diagnóstico en el equipo de David. La tentativa adicional de probar con un proceso sin privilegios quedó bloqueada por el entorno; no se afirma que se hayan validado ACL reales de Windows o POSIX. Ver [validación T46](comprobaciones/T46-validacion-local.md).
+
+
+## Matriz de conformidad T62 para T63–T66
+
+Esta matriz es planificación de pruebas, no pruebas ejecutadas. Contrato normativo: [05](05-protocolo.md), secciones 2–5 y 10–11.
+
+| ID | Comprobación | Tarjeta y resultado esperado |
+| --- | --- | --- |
+| PR01 | Nueve verbos CMD y todas las familias ACK/ERROR/EVENT/MOVE/ARRIVED/DIRECTION/STOPPED_AT/STATE | T63: round-trip conserva todos los campos del DTO y emisión canónica. |
+| PR02 | Espacios múltiples, LF/CRLF; tab, BOM, vacío, espacios exteriores, Unicode y saltos internos | T63: solo los formatos admitidos normalizan; demás INVALID_FORMAT. |
+| PR03 | UUID canónico y UUID numérico/mayúsculas/guiones inválidos | T63: identidad preservada o INVALID_ARGUMENT, nunca UUID regenerado. |
+| PR04 | long/int mínimo, máximo, máximo+1, signos, ceros iniciales; época/revisión 0 | T63: sin desbordamiento; cmdId/seq/piso/id no admiten 0; época sí. |
+| PR05 | Todas las aridades, etiquetas equivocadas, verbos y versiones desconocidas | T63: código y cabecera recuperada según precedencia 10.3. |
+| PR06 | 1 MiB exacto/exceso, diagnóstico de 256 caracteres; STATE demasiado grande | T63/T65: sin truncar datos, límite validado antes de tokenizar, FAILED de STATUS si procede. |
+| PR07 | P=1, extremos y destinatario inexistente combinado con piso inválido | T63/T64: dominio y precedencia deterministas. |
+| PR08 | STATE HELD, NEXT adyacente, listas únicas ordenadas, restantes, MODE | T63: coherencia de estado y gramática de 29 tokens. |
+| PR09 | Misma orden reenviada activa/terminal, STATUS repetido, colisión entre cabinas/épocas | T64/T65: replay estable sin ejecución doble; ID_CONFLICT no altera original. |
+| PR10 | Distintos UUID equivalentes y nueva solicitud después del servicio | T65: COALESCED solo activa, terminal para cada alias; nuevo servicio posterior permitido. |
+| PR11 | Roles de canal, control no autorizado, precondiciones y control repetido con otro ID | T64/T65: sin autoridad autodeclarada ni ejecución parcial. |
+| PR12 | ACK frente a comienzo del servicio/fin de parada, prioridades y supersesión | T65: terminal único, cancelación de barreras sustituidas. |
+| PR13 | Reset con orden vieja en vuelo, replay histórico, incremento exacto y overflow | T65/T66: cancela pendientes y no revive servicio antiguo. |
+| PR14 | N cabinas con respuesta retrasada/duplicada, manejador pendiente, revisión/época obsoletas | T65: barrera por identidades exactas y sin actualización obsoleta. |
+| PR15 | Respuesta malformada, fallo después de ACK, timeout y cierre durante pausa | T65/T66: sin bucles ERROR; FAILED o diagnóstico local; join antes de CLOSED. |
+| PR16 | Regresión de pausa/animación/importación y traza textual real | T66: conserva extras; texto serializado y parseado antes de actuar, no solo impreso. |
+
+Las fechas de Request y el reloj interno no pertenecen al DTO V1. No afirmar round-trip de esos metadatos ni usar igualdad solo por UUID para ocultar diferencias operativas. Los ejemplos 11.1–11.4 son vectores documentales listos para convertir a fixtures en T63; no se han ejecutado como protocolo.
