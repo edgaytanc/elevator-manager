@@ -3,7 +3,7 @@
 - **Fecha:** 2 de noviembre de 2026, Guatemala.
 - **Fase:** 11 — Protocolo textual, extra 3.
 - **Base aceptada:** T62, commit `5b310e5`, revisión/aprobación de David y árbol limpio.
-- **Estado:** código implementado y verificado con Java 17 y escenarios independientes; pendiente de Maven local y aceptación de David. T64 no iniciada.
+- **Estado:** cerrada por validación de David en `6c8d7d3`; 76 específicas/1,002 totales, BUILD SUCCESS, demo correcta y Git limpio. Las secciones siguientes conservan la descripción de la entrega original.
 
 ## Resultado y diseño
 
@@ -83,3 +83,8 @@ git status --short
 ```
 
 No se realiza el commit en nombre de David. Tras la aceptación de T63, corresponde T64 — Sustituir la frontera manejador–cabina por mensajes de texto.
+
+
+## Cierre recibido antes de T64
+
+El archivo de validación proporcionado por David contiene `ProtocolCodecTest`: 76, Failures=0, Errors=0, Skipped=0; `mvn clean verify`: 1,002, Failures=0, Errors=0, Skipped=0 y BUILD SUCCESS. Compiló 77 fuentes main y 99 test con release 17. La demo confirmó sameContent=true, UUID preservado, INVALID_DIRECTION y T63_CODEC_OK. AnimationSynchronizationTest también pasó (24 casos). Commit real `6c8d7d3`, 18 archivos, 3,370 inserciones/6 eliminaciones, árbol limpio. Esto cierra los pendientes de aceptación de la entrega original.

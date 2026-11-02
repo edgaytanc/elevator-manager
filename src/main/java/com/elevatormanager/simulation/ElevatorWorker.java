@@ -9,6 +9,14 @@ import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.Direction;
 import com.elevatormanager.model.request.Request;
 import com.elevatormanager.protocol.Command;
+import com.elevatormanager.protocol.ProtocolCodec;
+import com.elevatormanager.protocol.ProtocolCommands;
+import com.elevatormanager.protocol.ProtocolDecodeResult;
+import com.elevatormanager.protocol.ProtocolMessage;
+import com.elevatormanager.protocol.ProtocolMessage.ErrorCode;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -26,7 +34,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * T37: reset prioritario por cabina, retorno físico y controles serializados.
+ * T64: buzones de texto V1; parseo/admisión en el actor y reset prioritario.
  * No expone el estado mutable ni ejecuta callbacks de consumidores.
  */
 public final class ElevatorWorker implements AutoCloseable {
@@ -55,7 +63,23 @@ public final class ElevatorWorker implements AutoCloseable {
     private final CommandLedger ledger;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition available = lock.newCondition();
-    private final ArrayDeque<Command> inbox = new ArrayDeque<>();
+    /** El sobre solo lleva texto y fecha contextual; nunca el Command original. */
+    private record TextFrame(String text, Instant createdAt) {
+        TextFrame { Objects.requireNonNull(text, "text"); Objects.requireNonNull(createdAt, "createdAt"); }
+    }
+    private record ResetFrame(TextFrame frame, CompletableFuture<ElevatorSnapshot> response) { }
+    private record Decoded(Command command, Result rejection) { }
+    public record ProtocolReception(long frames, long malformed, String processedBy) { }
+    private final AtomicReference<ProtocolReception> protocolReception =
+            new AtomicReference<>(new ProtocolReception(0, 0, ""));
+    private final ProtocolCodec protocol;
+    private final ProtocolMailbox protocolOutput = new ProtocolMailbox();
+    private final CopyOnWriteArrayList<ProtocolMailbox> protocolSubscribers = new CopyOnWriteArrayList<>();
+    private final List<String> protocolBatch = new ArrayList<>();
+    private record WireKey(long epoch, long id) { }
+    private final Map<WireKey, ProtocolMessage> wireAdmissions = new HashMap<>();
+    private final Map<WireKey, ProtocolMessage.Terminal> wireTerminals = new HashMap<>();
+    private final ArrayDeque<TextFrame> inbox = new ArrayDeque<>();
     private final BlockingQueue<Result> results = new LinkedBlockingQueue<>();
     private final BlockingQueue<Service> services = new LinkedBlockingQueue<>();
     private final BlockingQueue<ExecutionEvent> events = new LinkedBlockingQueue<>();
@@ -73,7 +97,7 @@ public final class ElevatorWorker implements AutoCloseable {
     private CompletableFuture<Void> stopConfirmation;
     private record ResetTicket(Command.Reset command, CompletableFuture<ElevatorSnapshot> response) { }
     private record ResetOperation(Command.Reset command, CompletableFuture<ElevatorSnapshot> completion) { }
-    private final ArrayDeque<ResetTicket> resetInbox = new ArrayDeque<>();
+    private final ArrayDeque<ResetFrame> resetInbox = new ArrayDeque<>();
     private ResetOperation lastReset;
     private boolean resetHeld;
     private Optional<Direction> completedSweep = Optional.empty();
@@ -91,6 +115,7 @@ public final class ElevatorWorker implements AutoCloseable {
             PauseCoordinator pause) {
         this.pause = pause;
         this.trace = Objects.requireNonNull(trace, "trace");
+        protocol = new ProtocolCodec(config);
         state = new ElevatorState(id, config, epoch);
         ledger = new CommandLedger(state);
         published = new AtomicReference<>(capture(nowNanos()));
@@ -118,38 +143,71 @@ public final class ElevatorWorker implements AutoCloseable {
 
     /** true solo confirma encolado; el resultado de admisión llega por separado. */
     public boolean submit(Command command) {
-        Objects.requireNonNull(command, "command");
-        lock.lock();
-        try {
-            if (lifecycle != Lifecycle.RUNNING) { return false; }
-            if (command instanceof Command.Reset reset) {
-                resetInbox.addLast(new ResetTicket(reset, new CompletableFuture<>()));
-                available.signalAll();
-                return true;
-            }
-            if (resetHeld || !resetInbox.isEmpty()) { return false; }
-            inbox.addLast(command);
-            available.signal();
-            return true;
-        } finally {
-            lock.unlock();
-        }
+        TextFrame frame = encode(command);
+        return enqueue(frame, null, command instanceof Command.Reset) == Submission.ENQUEUED;
     }
 
-    /** El futuro confirma piso 1/UP; aceptar el control no significa terminar el retorno. */
+    /** Entrada de texto real. true confirma encolado, nunca parseo/admisión. */
+    public boolean submitText(String text) { return submitText(text, Instant.EPOCH); }
+
+    /** createdAt es contexto de sesión, no parte del contenido operativo V1. */
+    public boolean submitText(String text, Instant createdAt) {
+        return enqueue(new TextFrame(text, createdAt), null, false) == Submission.ENQUEUED;
+    }
+
+    public Submission submitTextIfCurrent(String text, Instant createdAt, PlanningSnapshot expected) {
+        Objects.requireNonNull(expected, "expected");
+        return enqueue(new TextFrame(text, createdAt), expected, false);
+    }
+
+    private Submission enqueue(TextFrame frame, PlanningSnapshot expected, boolean reset) {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.RUNNING) { return Submission.UNAVAILABLE; }
+            if (expected != null && published.get() != expected) { return Submission.STALE; }
+            if (reset) {
+                resetInbox.addLast(new ResetFrame(frame, new CompletableFuture<>()));
+                available.signalAll();
+                return Submission.ENQUEUED;
+            }
+            if (resetHeld || !resetInbox.isEmpty()) { return Submission.UNAVAILABLE; }
+            inbox.addLast(frame);
+            available.signal();
+            return Submission.ENQUEUED;
+        } finally { lock.unlock(); }
+    }
+
+    /** Serializa antes de cruzar el buzón prioritario; futuro de retorno físico. */
     public CompletableFuture<ElevatorSnapshot> requestReset(Command.Reset command) {
-        Objects.requireNonNull(command, "command");
+        return requestResetText(encode(command).text());
+    }
+
+    /** El actor valida que el texto sea RESET; un cuerpo inválido no cambia época. */
+    public CompletableFuture<ElevatorSnapshot> requestResetText(String text) {
+        TextFrame frame = new TextFrame(text, Instant.EPOCH);
         lock.lock();
         try {
             if (lifecycle != Lifecycle.RUNNING) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Cabina no disponible."));
             }
             var response = new CompletableFuture<ElevatorSnapshot>();
-            resetInbox.addLast(new ResetTicket(command, response));
+            resetInbox.addLast(new ResetFrame(frame, response));
             available.signalAll();
             return response.copy();
         } finally { lock.unlock(); }
     }
+
+    /** Canal textual propio, independiente de Result/Service/ExecutionEvent. */
+    public Optional<String> awaitProtocolMessage(Duration timeout) throws InterruptedException {
+        return protocolOutput.await(timeout);
+    }
+
+    public void subscribeProtocol(ProtocolMailbox mailbox) {
+        protocolSubscribers.addIfAbsent(Objects.requireNonNull(mailbox, "mailbox"));
+    }
+
+    public void unsubscribeProtocol(ProtocolMailbox mailbox) { protocolSubscribers.remove(mailbox); }
+    public ProtocolReception protocolReception() { return protocolReception.get(); }
 
     /** Suscripción adicional sin callbacks. No reproduce eventos anteriores al registro. */
     public void subscribeEvents(ExecutionEventMailbox mailbox) {
@@ -166,22 +224,8 @@ public final class ElevatorWorker implements AutoCloseable {
      * No reserva el estado ni confirma admisión; el buzón previo puede contener trabajo.
      */
     public Submission submitIfCurrent(Command command, PlanningSnapshot expected) {
-        Objects.requireNonNull(command, "command");
         Objects.requireNonNull(expected, "expected");
-        lock.lock();
-        try {
-            if (lifecycle != Lifecycle.RUNNING) { return Submission.UNAVAILABLE; }
-            if (published.get() != expected) { return Submission.STALE; }
-            if (command instanceof Command.Reset reset) {
-                resetInbox.addLast(new ResetTicket(reset, new CompletableFuture<>()));
-                available.signalAll();
-                return Submission.ENQUEUED;
-            }
-            if (resetHeld || !resetInbox.isEmpty()) { return Submission.UNAVAILABLE; }
-            inbox.addLast(command);
-            available.signal();
-            return Submission.ENQUEUED;
-        } finally { lock.unlock(); }
+        return enqueue(encode(command), expected, command instanceof Command.Reset);
     }
 
     /** Control prioritario; confirma tras llegada segura y publicación de eventos. */
@@ -313,7 +357,7 @@ public final class ElevatorWorker implements AutoCloseable {
                     if (pause != null && pause.isRequested()) { continue; }
                     long now = nowNanos();
                     if (!resetInbox.isEmpty()) {
-                        processReset(resetInbox.removeFirst(), now, deferred);
+                        processResetFrame(resetInbox.removeFirst(), now, deferred);
                     } else if (state.isResetting()) {
                         if (state.getPhase() == ElevatorPhase.MOVING) {
                             if (state.completeLegIfDue(now)) {
@@ -366,7 +410,12 @@ public final class ElevatorWorker implements AutoCloseable {
                         emit(ExecutionEvent.Type.STOP_ENDED, now);
                         continueWork(now, notifications);
                     } else if (!inbox.isEmpty()) {
-                        result = admit(inbox.removeFirst());
+                        Decoded decoded = decode(inbox.removeFirst());
+                        if (decoded.command() instanceof Command.Reset) {
+                            result = rejectServiceControl(decoded.command(), now);
+                        } else if (decoded.command() != null) {
+                            result = admit(decoded.command());
+                        } else { result = decoded.rejection(); }
                         continueWork(nowNanos(), notifications);
                     } else if (state.getPhase() == ElevatorPhase.MOVING
                             || state.getPhase() == ElevatorPhase.DWELLING) {
@@ -391,8 +440,8 @@ public final class ElevatorWorker implements AutoCloseable {
             failure = exception;
         } finally {
             if (pause != null) { pause.participantTerminated(state.getId(), failure); }
-            List<Command> abandoned;
-            List<ResetTicket> abandonedResets;
+            List<TextFrame> abandoned;
+            List<ResetFrame> abandonedResets;
             lock.lock();
             try {
                 lifecycle = failure == null ? Lifecycle.TERMINATED : Lifecycle.FAILED;
@@ -403,21 +452,27 @@ public final class ElevatorWorker implements AutoCloseable {
             } finally {
                 lock.unlock();
             }
-            for (Command command : abandoned) {
-                Result rejected = new Result(command, Outcome.REJECTED, "Trabajador finalizado.");
-                emitAdmission(rejected, nowNanos());
-                results.add(rejected);
+            for (TextFrame frame : abandoned) {
+                rejectAbandoned(frame);
             }
-            for (ResetTicket ticket : abandonedResets) {
-                Result rejected = new Result(ticket.command(), Outcome.REJECTED, "Cabina finalizada antes de procesar reset.");
-                emitAdmission(rejected, nowNanos());
-                results.add(rejected);
+            for (ResetFrame ticket : abandonedResets) { rejectAbandoned(ticket.frame()); }
+            for (CommandLedger.Completion pending : ledger.clearForReset()) {
+                wire(new ProtocolMessage.Terminal(header(pending.command()), failure == null
+                        ? ProtocolMessage.TerminalKind.CANCELLED : ProtocolMessage.TerminalKind.FAILED,
+                        failure == null ? Optional.of(ProtocolMessage.CancelReason.SHUTDOWN) : Optional.empty(),
+                        failure == null ? Optional.empty() : Optional.of(ErrorCode.INTERNAL_ERROR)));
+            }
+            if (lastReset != null && !lastReset.completion().isDone()) {
+                wire(new ProtocolMessage.Terminal(header(lastReset.command()), failure == null
+                        ? ProtocolMessage.TerminalKind.CANCELLED : ProtocolMessage.TerminalKind.FAILED,
+                        failure == null ? Optional.of(ProtocolMessage.CancelReason.SHUTDOWN) : Optional.empty(),
+                        failure == null ? Optional.empty() : Optional.of(ErrorCode.INTERNAL_ERROR)));
             }
             emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
                     : ExecutionEvent.Type.WORKER_FAILED, nowNanos());
             flushEvents();
             var resetFailure = new IllegalStateException("Cabina terminada antes de completar reset.", failure);
-            for (ResetTicket ticket : abandonedResets) { ticket.response().completeExceptionally(resetFailure); }
+            for (ResetFrame ticket : abandonedResets) { ticket.response().completeExceptionally(resetFailure); }
             if (lastReset != null && !lastReset.completion().isDone()) {
                 lastReset.completion().completeExceptionally(resetFailure);
             }
@@ -425,6 +480,104 @@ public final class ElevatorWorker implements AutoCloseable {
                 stopConfirmation.completeExceptionally(new IllegalStateException("Cabina terminada antes de confirmar Stop.", failure));
             }
         }
+    }
+
+    private TextFrame encode(Command command) {
+        Objects.requireNonNull(command, "command");
+        Instant createdAt = command instanceof Command.Pickup pickup ? pickup.request().getCreatedAt()
+                : command instanceof Command.Destination destination ? destination.request().getCreatedAt() : Instant.EPOCH;
+        return new TextFrame(protocol.encodeSyntax(ProtocolCommands.fromDomain(command)), createdAt);
+    }
+
+    /** Solo se invoca en el hilo del actor, también al rechazar entradas abandonadas. */
+    private Decoded decode(TextFrame frame) {
+        ProtocolDecodeResult parsed = protocol.decodeCommand(frame.text());
+        ProtocolReception previous = protocolReception.get();
+        protocolReception.set(new ProtocolReception(previous.frames() + 1,
+                previous.malformed() + (parsed.isSuccess() ? 0 : 1), Thread.currentThread().getName()));
+        if (parsed.isSuccess()) {
+            ProtocolMessage message = parsed.message().orElseThrow();
+            if (message instanceof ProtocolMessage.Pickup || message instanceof ProtocolMessage.Destination
+                    || message instanceof ProtocolMessage.Control control
+                    && control.kind() == ProtocolMessage.ControlKind.RESET) {
+                return new Decoded(ProtocolCommands.toDomain(message, frame.createdAt()), null);
+            }
+            wire(new ProtocolMessage.Error(message.header(), ErrorCode.INVALID_STATE));
+            return new Decoded(null, null); // Controles adicionales se integran en T65.
+        }
+        ProtocolDecodeResult.Failure error = parsed.failure().orElseThrow();
+        // Conserva Result/ExecutionEvent para clientes tipados antiguos, reconstruidos
+        // del texto; el DTO de esta segunda lectura NUNCA se admite ni mueve la cabina.
+        ProtocolDecodeResult syntax = protocol.decodeCommandSyntax(frame.text());
+        if (syntax.isSuccess()) {
+            ProtocolMessage message = syntax.message().orElseThrow();
+            if (message instanceof ProtocolMessage.Pickup || message instanceof ProtocolMessage.Destination
+                    || message instanceof ProtocolMessage.Control control
+                    && control.kind() == ProtocolMessage.ControlKind.RESET) {
+                Command command = ProtocolCommands.toDomain(message, frame.createdAt());
+                Result rejected = new Result(command, Outcome.REJECTED, error.detail());
+                emitAdmission(rejected, nowNanos(), error.code());
+                return new Decoded(null, rejected);
+            }
+        }
+        wire(error.asErrorMessage());
+        return new Decoded(null, null);
+    }
+
+    private Result rejectServiceControl(Command command, long now) {
+        Result rejected = new Result(command, Outcome.REJECTED, "RESET requiere el buzón prioritario.");
+        emitAdmission(rejected, now, ErrorCode.INVALID_STATE);
+        return rejected;
+    }
+
+    private void processResetFrame(ResetFrame frame, long now, List<Runnable> deferred) {
+        Decoded decoded = decode(frame.frame());
+        if (decoded.command() instanceof Command.Reset reset) {
+            processReset(new ResetTicket(reset, frame.response()), now, deferred);
+        } else {
+            Result rejected = decoded.rejection();
+            if (decoded.command() != null) {
+                rejected = new Result(decoded.command(), Outcome.REJECTED, "El buzón prioritario solo admite RESET.");
+                emitAdmission(rejected, now, ErrorCode.INVALID_STATE);
+            }
+            Result result = rejected;
+            if (result != null) { deferred.add(() -> results.add(result)); }
+            deferred.add(() -> frame.response().completeExceptionally(
+                    new IllegalArgumentException("Mensaje RESET inválido; consultar respuesta de protocolo.")));
+        }
+    }
+
+    private void rejectAbandoned(TextFrame frame) {
+        Decoded decoded = decode(frame);
+        if (decoded.command() != null) {
+            Result rejected = new Result(decoded.command(), Outcome.REJECTED, "Trabajador finalizado.");
+            emitAdmission(rejected, nowNanos(), ErrorCode.WORKER_UNAVAILABLE);
+            results.add(rejected);
+        } else if (decoded.rejection() != null) { results.add(decoded.rejection()); }
+    }
+
+    private ErrorCode rejectionCode(Command command) {
+        if (command.elevatorId() != state.getId()) { return ErrorCode.UNKNOWN_ELEVATOR; }
+        if (command.epoch() < state.getEpoch()) { return ErrorCode.STALE_EPOCH; }
+        if (command instanceof Command.Reset) { return ErrorCode.INVALID_STATE; }
+        if (command.epoch() > state.getEpoch()) { return ErrorCode.FUTURE_EPOCH; }
+        return ErrorCode.ID_CONFLICT;
+    }
+
+    private static ProtocolMessage.Header header(Command command) {
+        return new ProtocolMessage.Header(command.commandId(), command.epoch(), command.elevatorId());
+    }
+
+    private void wire(ProtocolMessage message) {
+        if (message instanceof ProtocolMessage.Terminal terminal) {
+            wireTerminals.putIfAbsent(new WireKey(terminal.header().epoch(), terminal.header().id()), terminal);
+        }
+        protocolBatch.add(protocol.encode(message));
+    }
+
+    private void completed(Command command) {
+        wire(new ProtocolMessage.Terminal(header(command), ProtocolMessage.TerminalKind.COMPLETED,
+                Optional.empty(), Optional.empty()));
     }
 
     /** Admisión del control: cierre > reset > Stop > servicio. Solo escribe el actor. */
@@ -455,11 +608,18 @@ public final class ElevatorWorker implements AutoCloseable {
             eventBatch.add(new ExecutionEvent(++eventSequence, ExecutionEvent.Type.COMMAND_CANCELLED,
                     state.snapshot(now), Optional.of(cancelled.command()),
                     Optional.of(cancelled.canonicalRequestId()), "Cancelado por reset prioritario."));
+            wire(new ProtocolMessage.Terminal(header(cancelled.command()), ProtocolMessage.TerminalKind.CANCELLED,
+                    Optional.of(ProtocolMessage.CancelReason.RESET), Optional.empty()));
         }
         while (!inbox.isEmpty()) {
-            var rejected = new Result(inbox.removeFirst(), Outcome.REJECTED, "Descartado del inbox por reset.");
-            emitAdmission(rejected, now);
-            deferred.add(() -> results.add(rejected));
+            Decoded decoded = decode(inbox.removeFirst());
+            if (decoded.command() != null) {
+                var rejected = new Result(decoded.command(), Outcome.REJECTED, "Descartado del inbox por reset.");
+                emitAdmission(rejected, now, ErrorCode.STALE_EPOCH);
+                deferred.add(() -> results.add(rejected));
+            } else if (decoded.rejection() != null) {
+                deferred.add(() -> results.add(decoded.rejection()));
+            }
         }
         if (stopConfirmation != null && !stopConfirmation.isDone()) {
             var replaced = stopConfirmation;
@@ -516,6 +676,7 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private void emitReset(ExecutionEvent.Type type, long now) {
+        if (type == ExecutionEvent.Type.RESET_COMPLETED) { completed(lastReset.command()); }
         eventBatch.add(new ExecutionEvent(++eventSequence, type, state.snapshot(now),
                 Optional.of(lastReset.command()), Optional.empty(), ""));
     }
@@ -590,6 +751,26 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private void emitAdmission(Result result, long now) {
+        emitAdmission(result, now, rejectionCode(result.command()));
+    }
+
+    private void emitAdmission(Result result, long now, ErrorCode rejection) {
+        WireKey key = new WireKey(result.command().epoch(), result.command().commandId());
+        if (result.outcome() == Outcome.REJECTED) {
+            wire(new ProtocolMessage.Error(header(result.command()), rejection));
+        } else {
+            ProtocolMessage ack = wireAdmissions.get(key);
+            if (!result.replay() || ack == null) {
+                boolean coalesced = result.outcome() == Outcome.DUPLICATE && !result.replay()
+                        && result.canonicalRequestId().isPresent();
+                ack = new ProtocolMessage.Ack(header(result.command()), coalesced
+                        ? ProtocolMessage.AckKind.COALESCED : ProtocolMessage.AckKind.ACCEPTED,
+                        coalesced ? result.canonicalRequestId() : Optional.empty());
+                wireAdmissions.put(key, ack);
+            }
+            wire(ack);
+            if (result.replay() && wireTerminals.containsKey(key)) { wire(wireTerminals.get(key)); }
+        }
         ExecutionEvent.Type type = result.replay() ? ExecutionEvent.Type.COMMAND_REPLAYED
                 : switch (result.outcome()) {
                     case ACCEPTED -> ExecutionEvent.Type.COMMAND_ACCEPTED;
@@ -602,6 +783,7 @@ public final class ElevatorWorker implements AutoCloseable {
 
     private void emitCompletions(long now) {
         for (CommandLedger.Completion completion : ledger.drainCompletions()) {
+            completed(completion.command());
             eventBatch.add(new ExecutionEvent(++eventSequence,
                     ExecutionEvent.Type.COMMAND_COMPLETED, state.snapshot(now),
                     Optional.of(completion.command()), Optional.of(completion.canonicalRequestId()),
@@ -614,8 +796,21 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private void emit(ExecutionEvent.Type type, long now) {
-        eventBatch.add(new ExecutionEvent(++eventSequence, type, state.snapshot(now),
-                Optional.empty(), Optional.empty(), ""));
+        ExecutionEvent event = new ExecutionEvent(++eventSequence, type, state.snapshot(now),
+                Optional.empty(), Optional.empty(), "");
+        eventBatch.add(event);
+        var snapshot = event.snapshot();
+        var h = new ProtocolMessage.Header(event.sequence(), event.epoch(), event.elevatorId());
+        switch (type) {
+            case DEPARTED -> wire(new ProtocolMessage.Move(h, snapshot.currentFloor(),
+                    snapshot.nextFloor().orElseThrow(), snapshot.direction()));
+            case ARRIVED -> wire(new ProtocolMessage.Arrived(h, snapshot.currentFloor()));
+            case DIRECTION_CHANGED -> wire(new ProtocolMessage.DirectionChanged(h,
+                    snapshot.direction().opposite(), snapshot.direction()));
+            case STOP_STARTED -> wire(new ProtocolMessage.StoppedAt(h,
+                    snapshot.currentFloor(), snapshot.direction()));
+            default -> { }
+        }
     }
 
     /** Sin lock del buzón, callbacks, I/O ni espera de consumidores. */
@@ -626,6 +821,11 @@ public final class ElevatorWorker implements AutoCloseable {
             for (var subscriber : subscribers) { subscriber.publish(event); }
         }
         eventBatch.clear();
+        for (String frame : protocolBatch) {
+            protocolOutput.publish(frame);
+            for (ProtocolMailbox subscriber : protocolSubscribers) { subscriber.publish(frame); }
+        }
+        protocolBatch.clear();
     }
 
     private static long timeoutNanos(Duration timeout) {

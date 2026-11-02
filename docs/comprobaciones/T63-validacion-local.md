@@ -45,3 +45,8 @@ git status --short
 La compilación independiente excluye los adaptadores que importan JUnit porque Maven/dependencias de prueba no están instalados en este entorno. El total de 1,002 es esperado, no observado. Las verificaciones headless no constituyen un nuevo recorrido nativo de Windows.
 
 Decode devuelve datos válidos; no significa ACK ni ejecución. El codec no registra idempotencia, no autoriza productores y no decide época/estado vigente. Todavía no se transportan órdenes de cabina como texto: T64–T65 harán esa integración y T66 demostrará el protocolo completo. Los extras y la herencia/hilos anteriores siguen presentes en el código íntegro.
+
+
+## Validación recibida de David — 2026-11-02
+
+T63 queda cerrada: 76 específicas y 1,002 totales, sin fallos, errores ni omitidas; ambos comandos Maven con BUILD SUCCESS. Demo correcta, incluido sameContent=true e INVALID_DIRECTION; final T63_CODEC_OK. AnimationSynchronizationTest: 24 casos correctos en esta ejecución. Git comprobado, commit `6c8d7d3` y árbol limpio. Las tablas con «pendiente» anteriores describen el momento de entrega original y quedan actualizadas por esta confirmación.

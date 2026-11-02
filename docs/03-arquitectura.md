@@ -424,3 +424,19 @@ Identidad de sesión/rol se obtiene del canal privado, no de tokens autodeclarad
 `ProtocolMessage` y sus records representan órdenes, ACK, ERROR, terminales, eventos físicos y estado público. `ProtocolDecodeResult` distingue mensaje válido de fallo inmutable y acotado. `ProtocolCodec` solo conserva `SimulationConfig` final, de modo que se comparte entre emisores sin bloqueos ni estado de sesión. Su escritor y parser usan datos locales por llamada; las listas de STATE son copias inmutables.
 
 `ProtocolCommands` adapta `Command.Pickup`, `Command.Destination` y `Command.Reset` sin modificar las clases del motor ni la herencia de solicitudes. El llamador proporciona `createdAt` al reconstruir dominio. Los controles adicionales se conservan como DTO hasta su integración. El codec rechaza formato/dominio; aún no consulta ledger, roles, época actual o `SimulationState`. No existe en esta tarjeta una nueva cola, un hilo por mensaje o un transporte que sustituya al actual. T64–T65 deben consumir el resultado tipado antes de actuar y enlazar correlaciones/confirmaciones con la coordinación existente.
+
+
+## Avance T64 — Buzones textuales en producción
+
+| Componente | Responsabilidad vigente |
+| --- | --- |
+| ManagerWorker | Seleccionar cabina, serializar PICKUP y revalidar snapshot al encolar texto. |
+| SimulationController | Serializar DESTINATION, coordinar RESET y mantener ciclo de vida existente. |
+| ElevatorWorker | Guardar String/contexto inmutable, parsear en el actor, validar/admitir, ejecutar y publicar respuestas textuales fuera del lock. |
+| ProtocolCodec | Validación estricta de receptor/emisor y separación explícita de sintaxis para compatibilidad de rechazos. |
+| ProtocolMailbox | Cola de String por consumidor lógico; sin callbacks, I/O ni hilos propios. |
+| Publicación anterior | Result/Service/ExecutionEvent y snapshots conservan el seguimiento/GUI; no compiten por mensajes textuales. |
+
+El sobre de entrada no contiene Command ni Request. La fecha Instant contextual no decide piso, sentido, destinatario, UUID o época: esos datos salen del parser. Un ResetTicket tipado solo se crea dentro del actor después de validar el texto prioritario. Comparación de PlanningSnapshot y encolado son atómicos bajo el lock local; no hay reserva de una cabina sobre una estimación antigua.
+
+Se mantienen un trabajador por cabina y el manejador. No se crea un hilo por mensaje o respuesta. Suscriptores reciben una copia en su cola por mensaje, sin callbacks desde el motor. Las colas y los resultados conservan el modelo fiable en memoria de la aplicación; no se añade red ni persistencia. T65 unificará respuestas/estado y coordinación global de generaciones; todavía no debe reemplazarse el snapshot de animación por STATE ni suponerse autoridad en un token de entrada.

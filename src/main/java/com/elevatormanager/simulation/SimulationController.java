@@ -20,6 +20,8 @@ import com.elevatormanager.model.request.CabinRequest;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.model.request.Request;
 import com.elevatormanager.protocol.Command;
+import com.elevatormanager.protocol.ProtocolCodec;
+import com.elevatormanager.protocol.ProtocolCommands;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -76,6 +78,7 @@ public final class SimulationController implements AutoCloseable {
     private final Optional<SessionLog> sessionLog;
     private final TraceMailbox trace;
     private final SimulationConfig config;
+    private final ProtocolCodec protocol;
     private final PauseCoordinator pauseCoordinator;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
@@ -119,6 +122,7 @@ public final class SimulationController implements AutoCloseable {
         this.batchLoader = Objects.requireNonNull(batchLoader, "batchLoader");
         this.sessionLog = sessionLog;
         this.config = Objects.requireNonNull(config, "config");
+        protocol = new ProtocolCodec(config);
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
         pauseCoordinator = new PauseCoordinator(Math.addExact(config.elevatorCount(), 1));
@@ -139,6 +143,19 @@ public final class SimulationController implements AutoCloseable {
     }
 
     public SimulationConfig config() { return config; }
+    /** Observación textual adicional; no consume el seguimiento tipado existente. */
+    public void subscribeProtocol(ProtocolMailbox mailbox) {
+        elevators.forEach(e -> e.subscribeProtocol(mailbox));
+    }
+
+    public void unsubscribeProtocol(ProtocolMailbox mailbox) {
+        elevators.forEach(e -> e.unsubscribeProtocol(mailbox));
+    }
+
+    public List<ElevatorWorker.ProtocolReception> protocolReceptions() {
+        return elevators.stream().map(ElevatorWorker::protocolReception).toList();
+    }
+
     public long epoch() { return epoch; }
 
     /** T59: reloj activo compartido con referenceNanos de los snapshots.
@@ -468,7 +485,8 @@ public final class SimulationController implements AutoCloseable {
         }
         if (request instanceof CabinRequest cabin) {
             var command = new Command.Destination(nextCommandId(), cabin.getElevatorId(), cabin);
-            boolean sent = elevators.get(cabin.getElevatorId() - 1).submit(command);
+            boolean sent = elevators.get(cabin.getElevatorId() - 1).submitText(
+                    protocol.encode(ProtocolCommands.fromDomain(command)), cabin.getCreatedAt());
             return new Result(sent ? Outcome.ENQUEUED : Outcome.REJECTED, state,
                     "Envío a cabina; la aceptación y el servicio se notifican por eventos.",
                     sent ? Optional.of(command) : Optional.empty(), epoch);

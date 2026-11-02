@@ -3,7 +3,7 @@
 - **Proyecto:** Elevator Manager.
 - **Versión:** 1.0.0; contrato normativo T62 de mensajes V1. Contrato de archivo 1.0.0 en 07.
 - **Fecha:** 2026-11-02, Guatemala.
-- **Estado:** T62 aprobada en `5b310e5`. Codec T63 implementado con validación independiente; Maven/aceptación local pendientes. Transporte T64–T65 pendiente; el motor sigue usando sus canales tipados.
+- **Estado:** T62 aprobada en `5b310e5`; T63 validada en `6c8d7d3`. T64 implementa buzones de texto y respuestas reales, pendiente de Maven/aceptación local. Integración del seguimiento y controles restantes: T65.
 - **Base:** [02 — Decisiones](02-decisiones.md), [03 — Arquitectura](03-arquitectura.md), [04 — Asignación](04-algoritmo-asignacion.md).
 
 ## 1. Alcance y transporte
@@ -358,3 +358,20 @@ El parser aplica los pasos 1–6 de 10.3. Los pasos 7–10 (identidad histórica
 El tamaño se mide en bytes UTF-8 antes de tokenizar, sin construir una copia UTF-8 gigante; después se exige ASCII. Se retienen como máximo 29 tokens de framing para rechazar excesos y no crear un array proporcional al número de espacios. El escritor se detiene al exceder 1 MiB y la vista de diagnóstico se limita a 256 caracteres escapados. Las listas de STATE se copian defensivamente y se exige orden único, sin corregir silenciosamente la entrada.
 
 Hay 76 escenarios nuevos equivalentes bajo JUnit y un main independiente. [Resultados T63](comprobaciones/T63-resultados-locales.md) distingue pruebas ejecutadas, regresión y Maven pendiente. Esta actualización documenta la implementación del contrato 1.0.0 sin cambiar la versión de cable V1. Los ejemplos documentales de 11 continúan como vectores normativos; no se presentan como una traza del motor.
+
+
+## 14. Transporte real T64
+
+El envío normal de PICKUP en ManagerWorker y DESTINATION en SimulationController llama al codec estricto y encola una cadena. ElevatorWorker mantiene un buzón de servicio de sobres que contienen únicamente String/Instant y otro prioritario de RESET con String/futuro. El futuro es correlación local de retorno, no una orden tipada escondida. Los métodos públicos antiguos submit/submitIfCurrent/requestReset serializan antes de encolar; no se almacena ni ejecuta el Command original.
+
+El receptor usa decodeCommand en su hilo y solo reconstruye servicio/reset cuando ese resultado es válido. La fecha es contexto explícito del emisor, ausente de V1; la sobrecarga de texto sin fecha usa Instant.EPOCH estable. Se conserva el contexto de identidad del ledger previo sin inventar una fecha nueva en cada reintento. ProtocolReception publica contadores y nombre del hilo receptor sin retener entradas originales gigantes.
+
+El codec incorpora encodeSyntax/decodeCommandSyntax para separar forma de configuración. Los métodos estrictos encode/decode/decodeCommand/decodeResponse conservan su validación completa y sus 76 pruebas. La ruta tipada compatible usa encodeSyntax para que un destino fuera del edificio llegue al receptor como antes y este produzca el rechazo. Si el parser estricto rechaza un mensaje estructuralmente correcto, decodeCommandSyntax se usa solo para reconstruir Result/ExecutionEvent de rechazo de clientes previos; ese objeto nunca entra en la agenda ni se mueve. Una entrada malformada sin Command representable solo produce ERROR textual y diagnóstico limitado.
+
+ProtocolMailbox y awaitProtocolMessage ofrecen respuestas textuales producidas por el actor: ACK ACCEPTED/COALESCED, ERROR, MOVE, ARRIVED, DIRECTION, STOPPED_AT y terminales COMPLETED/CANCELLED/FAILED. La serialización se prepara con datos locales; la publicación a colas/suscriptores ocurre después de soltar el lock y sin callbacks/I/O. Cada suscripción tiene su propia cola; no roba eventos del manejador o la GUI. Desuscribir puede dejar un último frame de un lote ya capturado concurrentemente. Una cola tiene un consumidor lógico; ZERO permite sondeo y una espera positiva desde EDT se rechaza.
+
+RESET se admite desde el buzón prioritario, no desde el de servicio. Recibe ACK al adoptarse y COMPLETED solo al volver a 1/UP; cancela trabajo activo con época original y rechaza entradas antiguas aún sin admisión. Al cerrar, el actor rechaza entradas no admitidas y cancela trabajo aceptado, incluido un reset todavía pendiente. Si falla inesperadamente, los trabajos activos reciben FAILED INTERNAL_ERROR. Repetir un comando servido de la época aún gestionada reproduce su ACK/terminal textual conocido sin duplicar el servicio físico; los eventos tipados conservan su semántica previa de replay.
+
+Esta tarjeta preserva el ledger y los controles nativos: todavía no centraliza autoridad de productores ni idempotencia histórica entre épocas/destinatarios. El manejador sigue consumiendo ExecutionEvent para correlacionar admisión/servicio y las barreras de control conservan sus futuros; T65 debe integrar las respuestas de texto, STATE/STATUS, controles restantes y descarte de mensajes obsoletos conforme al contrato. STOP/START/PAUSE/RESUME/STATUS/SHUTDOWN enviados como texto a la cabina se rechazan con INVALID_STATE en T64; la GUI sigue ofreciendo esos controles por su coordinación existente. No se proclama completado todo el protocolo ni T66.
+
+El diagnóstico TextTransportDemo ejecuta actores reales y muestra las respuestas emitidas por el receptor, no solo una llamada directa formateada como log. La línea T64_ORDER es la representación canónica de la orden reportada por el manejador; T64_WIRE son cadenas realmente recibidas del canal de la cabina. Las pruebas alteran el cuerpo antes de enviarlo y verifican el piso atendido, la reconstrucción de objetos y el hilo que procesó la cadena.

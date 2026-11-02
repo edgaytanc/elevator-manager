@@ -31,9 +31,18 @@ public final class ProtocolCodec {
     /** Frontera de respuestas: informa un fallo local, nunca envía otro ERROR. */
     public ProtocolDecodeResult decodeResponse(String input) { return decode(input, Channel.RESPONSE); }
 
+    /** Solo sintaxis/forma; para reconstruir un rechazo tipado, nunca para admitirlo. */
+    public ProtocolDecodeResult decodeCommandSyntax(String input) {
+        return decode(input, Channel.COMMAND, false);
+    }
+
     private enum Channel { ANY, COMMAND, RESPONSE }
 
     private ProtocolDecodeResult decode(String input, Channel channel) {
+        return decode(input, channel, true);
+    }
+
+    private ProtocolDecodeResult decode(String input, Channel channel, boolean checkConfig) {
         Header correlation = Header.UNKNOWN;
         try {
             Frame frame = frame(input);
@@ -63,8 +72,8 @@ public final class ProtocolCodec {
             Header header = isCommand ? correlation : header(t, family);
             if (!isCommand && header.id() > 0 && header.elevatorId() > 0) { correlation = header; }
             if (t.size() < 8) { throw problem(ErrorCode.INVALID_FORMAT, "Falta cuerpo."); }
-            ProtocolMessage message = parse(frame, family, header);
-            validate(message);
+            ProtocolMessage message = parse(frame, family, header, checkConfig);
+            if (checkConfig) { validate(message); }
             return ProtocolDecodeResult.success(message);
         } catch (Problem error) {
             return ProtocolDecodeResult.rejected(failure(error.code, correlation, error.getMessage(), input));
@@ -75,11 +84,16 @@ public final class ProtocolCodec {
     }
 
     /** Emite una línea canónica, sin terminador. Falla explícitamente sin truncar. */
-    public String encode(ProtocolMessage message) {
+    public String encode(ProtocolMessage message) { return encode(message, true); }
+
+    /** Forma V1 acotada, sin validar el edificio del receptor. No autoriza ejecución. */
+    public String encodeSyntax(ProtocolMessage message) { return encode(message, false); }
+
+    private String encode(ProtocolMessage message, boolean checkConfig) {
         Header correlation = message == null ? Header.UNKNOWN : safeCorrelation(message.header());
         try {
             if (message == null) { throw problem(ErrorCode.INVALID_ARGUMENT, "Mensaje nulo."); }
-            validate(message);
+            if (checkConfig) { validate(message); }
             Writer w = new Writer();
             Header h = message.header();
             w.add("V1", family(message), h.id(), "EPOCH", h.epoch(), "ELEVATOR", h.elevatorId());
@@ -130,7 +144,7 @@ public final class ProtocolCodec {
         public ProtocolDecodeResult.Failure failure() { return failure; }
     }
 
-    private ProtocolMessage parse(Frame frame, String family, Header h) {
+    private ProtocolMessage parse(Frame frame, String family, Header h, boolean checkConfig) {
         List<String> t = frame.tokens();
         switch (family) {
             case "CMD": {
@@ -139,8 +153,10 @@ public final class ProtocolCodec {
                     arity(frame, verb.equals("PICKUP") ? 11 : 10);
                     UUID request = uuid(t.get(8)); int floor = integer(t.get(9));
                     Direction direction = verb.equals("PICKUP") ? direction(t.get(10)) : null;
-                    target(h); floor(floor);
-                    if (direction != null) { externalDirection(floor, direction); }
+                    if (checkConfig) {
+                        target(h); floor(floor);
+                        if (direction != null) { externalDirection(floor, direction); }
+                    }
                     return direction == null ? new Destination(h, request, floor) : new Pickup(h, request, floor, direction);
                 }
                 ControlKind kind = value(ControlKind.class, verb, ErrorCode.UNKNOWN_COMMAND);
@@ -163,11 +179,11 @@ public final class ProtocolCodec {
             case "MOVE": {
                 arity(frame, 13); labels(t, 7, "FROM", 9, "TO", 11, "DIRECTION");
                 int from = integer(t.get(8)), to = integer(t.get(10)); Direction d = direction(t.get(12));
-                target(h); floor(from); floor(to); return new Move(h, from, to, d);
+                if (checkConfig) { target(h); floor(from); floor(to); } return new Move(h, from, to, d);
             }
             case "ARRIVED": {
                 arity(frame, 9); labels(t, 7, "FLOOR"); int f = integer(t.get(8));
-                target(h); floor(f); return new Arrived(h, f);
+                if (checkConfig) { target(h); floor(f); } return new Arrived(h, f);
             }
             case "DIRECTION":
                 arity(frame, 11); labels(t, 7, "FROM", 9, "TO");
@@ -175,7 +191,7 @@ public final class ProtocolCodec {
             case "STOPPED_AT": {
                 arity(frame, 11); labels(t, 7, "FLOOR", 9, "SERVICE");
                 int f = integer(t.get(8)); Direction d = direction(t.get(10));
-                target(h); floor(f); return new StoppedAt(h, f, d);
+                if (checkConfig) { target(h); floor(f); } return new StoppedAt(h, f, d);
             }
             case "STATE": {
                 arity(frame, 29);
@@ -191,10 +207,12 @@ public final class ProtocolCodec {
                 Mode mode = value(Mode.class, t.get(22), ErrorCode.INVALID_ARGUMENT);
                 long remaining = number(t.get(24));
                 List<Integer> internal = internal(t.get(26)); List<ExternalCall> external = external(t.get(28));
-                target(h); floor(f); if (next.isPresent()) { floor(next.getAsInt()); }
-                for (int item : internal) { floor(item); }
-                for (ExternalCall call : external) { floor(call.floor()); }
-                for (ExternalCall call : external) { externalDirection(call.floor(), call.direction()); }
+                if (checkConfig) {
+                    target(h); floor(f); if (next.isPresent()) { floor(next.getAsInt()); }
+                    for (int item : internal) { floor(item); }
+                    for (ExternalCall call : external) { floor(call.floor()); }
+                    for (ExternalCall call : external) { externalDirection(call.floor(), call.direction()); }
+                }
                 return new State(h, revision, f, next, d, phase, suspended, hold, mode, remaining, internal, external);
             }
             default: throw problem(ErrorCode.INVALID_FORMAT, "Familia desconocida.");

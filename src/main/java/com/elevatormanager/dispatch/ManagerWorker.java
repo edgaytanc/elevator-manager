@@ -5,6 +5,8 @@ import com.elevatormanager.simulation.time.PauseCoordinator;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
+import com.elevatormanager.protocol.ProtocolCodec;
+import com.elevatormanager.protocol.ProtocolCommands;
 import com.elevatormanager.simulation.ElevatorWorker;
 import com.elevatormanager.simulation.ExecutionEventMailbox;
 import java.time.Duration;
@@ -40,6 +42,7 @@ public final class ManagerWorker implements AutoCloseable {
     private final TraceMailbox trace;
     private final PauseCoordinator pause; // null: actores independientes de la sesión.
     private final SimulationConfig config;
+    private final ProtocolCodec protocol;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
     private final LongSupplier commandIds;
@@ -90,6 +93,7 @@ public final class ManagerWorker implements AutoCloseable {
         this.pause = pause;
         this.trace = Objects.requireNonNull(trace, "trace");
         this.config = Objects.requireNonNull(config, "config");
+        protocol = new ProtocolCodec(config);
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
         ledger = new HallRequestLedger(config, epoch);
@@ -459,7 +463,8 @@ public final class ManagerWorker implements AutoCloseable {
             if (!areCurrent(candidates)) { continue; }
             var elevator = elevators.get(selected.elevatorId() - 1);
             var command = new Command.Pickup(commandId, selected.elevatorId(), request);
-            var submitted = elevator.submitIfCurrent(command, selected.candidate().planning());
+            var submitted = elevator.submitTextIfCurrent(protocol.encode(ProtocolCommands.fromDomain(command)),
+                    request.getCreatedAt(), selected.candidate().planning());
             if (submitted == ElevatorWorker.Submission.ENQUEUED) {
                 ledger.dispatched(request.getId(), command);
                 return result(request, Outcome.DISPATCHED, Optional.of(command),
