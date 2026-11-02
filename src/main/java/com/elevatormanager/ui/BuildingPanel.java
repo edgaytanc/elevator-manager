@@ -6,6 +6,7 @@ import com.elevatormanager.model.SimulationConfig;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
@@ -35,6 +36,9 @@ public final class BuildingPanel extends JPanel implements Scrollable {
     private Long frozenActive;
     private boolean frozenResumed;
     private boolean animationClosed;
+    private Rectangle lastAnimationView;
+    private int lastAnimationWidth, lastAnimationHeight, lastFirstCabin;
+    private int[] lastAnimationY = new int[0];
 
     public BuildingPanel() { this(System::nanoTime); }
 
@@ -51,6 +55,7 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         sessionId = Objects.requireNonNull(session, "session");
         config = Objects.requireNonNull(configuration, "configuration");
         snapshots = List.of(); rendered = null; timeView = null; frozenActive = null; frozenResumed = false; animationClosed = false;
+        lastAnimationView = null; lastAnimationY = new int[0];
         revalidate(); repaint();
     }
 
@@ -76,13 +81,16 @@ public final class BuildingPanel extends JPanel implements Scrollable {
         if (animationClosed || config == null || !frame.sessionId().equals(sessionId) || frame.epoch() != currentEpoch
                 || frame.snapshots().size() != config.elevatorCount() || frame == rendered) return;
         snapshots = frame.snapshots(); rendered = frame;
-        repaint();
+        refreshAnimation();
     }
 
     @Override public Dimension getPreferredSize() {
         if (config == null) return new Dimension(600, 320);
-        return new Dimension(extent(config.elevatorCount(), 112, Geometry.LEFT + Geometry.RIGHT),
-                extent(config.floorCount(), 36, Geometry.TOP + Geometry.BOTTOM));
+        var metrics = getFontMetrics(getFont());
+        int lane = Math.max(112, metrics.stringWidth("Elevador " + config.elevatorCount()) + 24);
+        int row = Math.max(36, metrics.getHeight() + 12);
+        return new Dimension(extent(config.elevatorCount(), lane, Geometry.LEFT + Geometry.RIGHT),
+                extent(config.floorCount(), row, Geometry.TOP + Geometry.BOTTOM));
     }
 
     /** Satura con long antes de convertir: las cantidades válidas no desbordan Swing. */
@@ -116,8 +124,6 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 int y = layout.floorY(floor);
                 g.setColor(new Color(222, 228, 235));
                 g.drawLine(Geometry.LEFT, y, layout.width() - Geometry.RIGHT, y);
-                g.setColor(new Color(32, 46, 64));
-                g.drawString("Piso " + floor, 8, y + 5);
                 if (floor == lastFloor) break;
             }
             long wallNow = wallClock.getAsLong();
@@ -130,21 +136,75 @@ public final class BuildingPanel extends JPanel implements Scrollable {
                 g.setColor(new Color(231, 237, 244));
                 g.fillRect(x - shaftWidth / 2, Geometry.TOP, shaftWidth,
                         layout.height() - Geometry.TOP - Geometry.BOTTOM);
-                g.setColor(new Color(32, 46, 64));
-                String title = "Elevador " + id;
-                g.drawString(title, x - g.getFontMetrics().stringWidth(title) / 2, 25);
                 Rectangle cabin = layout.cabinBounds(id, positionAt(id, wallNow, currentTime));
                 if (clip.intersects(cabin)) {
                     g.setColor(CABIN_COLOR);
                     g.fillRoundRect(cabin.x, cabin.y, cabin.width, cabin.height, 8, 8);
                     g.setColor(Color.WHITE);
-                    String label = "E" + id;
-                    g.drawString(label, x - g.getFontMetrics().stringWidth(label) / 2,
-                            cabin.y + (cabin.height + g.getFontMetrics().getAscent()) / 2 - 2);
+                    paintFitted(g, "E" + id, new Rectangle(cabin.x + 4, cabin.y + 2,
+                            Math.max(1, cabin.width - 8), Math.max(1, cabin.height - 4)));
                 }
                 if (id == lastCabin) break;
             }
+            paintAxes(g, layout, getVisibleRect(), clip);
         } finally { g.dispose(); }
+    }
+
+    /** T61: ejes adheridos al viewport, sin componentes por piso o cabina. */
+    private void paintAxes(Graphics2D g, Geometry layout, Rectangle visible, Rectangle clip) {
+        var labels = (Graphics2D) g.create();
+        try {
+            labels.setColor(Color.WHITE);
+            labels.fillRect(visible.x, visible.y, Geometry.LEFT, visible.height);
+            labels.fillRect(visible.x, visible.y, visible.width, Geometry.TOP);
+            labels.setColor(new Color(32, 46, 64));
+            var rows = (Graphics2D) labels.create();
+            try {
+                rows.clip(new Rectangle(visible.x, visible.y + Geometry.TOP, Geometry.LEFT,
+                        Math.max(0, visible.height - Geometry.TOP)));
+                int first = layout.floorAt((double) clip.y + clip.height), last = layout.floorAt(clip.y);
+                int h = Math.max(1, (int) Math.min(32, layout.floorHeight()));
+                for (int floor = first; ; floor++) {
+                    paintFitted(rows, "Piso " + floor, new Rectangle(visible.x + 4,
+                            layout.floorY(floor) - h / 2, Geometry.LEFT - 8, h));
+                    if (floor == last) break;
+                }
+            } finally { rows.dispose(); }
+            var columns = (Graphics2D) labels.create();
+            try {
+                columns.clip(new Rectangle(visible.x + Geometry.LEFT, visible.y,
+                        Math.max(0, visible.width - Geometry.LEFT), Geometry.TOP));
+                int first = layout.cabinAt(clip.x), last = layout.cabinAt((double) clip.x + clip.width);
+                int w = Math.max(1, (int) Math.min(Integer.MAX_VALUE - 16.0, layout.laneWidth() - 8));
+                for (int id = first; ; id++) {
+                    var title = new Rectangle(layout.cabinX(id) - w / 2, visible.y + 4, w, Geometry.TOP - 8);
+                    if (title.x >= visible.x + Geometry.LEFT
+                            && (long) title.x + title.width <= (long) visible.x + visible.width)
+                        paintFitted(columns, "Elevador " + id, title);
+                    if (id == last) break;
+                }
+            } finally { columns.dispose(); }
+            paintFitted(labels, "Edificio", new Rectangle(visible.x + 4, visible.y + 4,
+                    Geometry.LEFT - 8, Geometry.TOP - 8));
+            labels.setColor(new Color(190, 201, 214));
+            labels.drawLine(visible.x + Geometry.LEFT, visible.y,
+                    visible.x + Geometry.LEFT, visible.y + visible.height);
+            labels.drawLine(visible.x, visible.y + Geometry.TOP,
+                    visible.x + visible.width, visible.y + Geometry.TOP);
+        } finally { labels.dispose(); }
+    }
+
+    private static void paintFitted(Graphics2D g, String text, Rectangle bounds) {
+        if (bounds.width < 1 || bounds.height < 1) return;
+        Font original = g.getFont();
+        var metrics = g.getFontMetrics();
+        float scale = Math.min(1f, Math.min((float) bounds.width / Math.max(1, metrics.stringWidth(text)),
+                (float) bounds.height / Math.max(1, metrics.getHeight())));
+        if (scale < 1f) g.setFont(original.deriveFont(original.getSize2D() * scale));
+        metrics = g.getFontMetrics();
+        g.drawString(text, bounds.x + (bounds.width - metrics.stringWidth(text)) / 2,
+                bounds.y + (bounds.height - metrics.getHeight()) / 2 + metrics.getAscent());
+        g.setFont(original);
     }
 
     int displayedFloor(int id) {
@@ -173,8 +233,38 @@ public final class BuildingPanel extends JPanel implements Scrollable {
     /** Un tick solo invalida la región visible; no captura ni recorre todo N/P. */
     void refreshAnimation() {
         requireEdt();
-        if (!animationClosed && config != null && isShowing()) repaint(getVisibleRect());
+        if (!animationClosed && config != null && isShowing()) {
+            var visible = getVisibleRect();
+            if (animationChanged(visible)) repaint(visible);
+        }
     }
+
+    /** Caché O(columnas visibles): omite reposo, pausa y movimiento fuera del viewport. */
+    boolean animationChanged(Rectangle visible) {
+        requireEdt();
+        if (animationClosed || config == null || visible.width <= 0 || visible.height <= 0) return false;
+        var layout = geometry();
+        int first = layout.cabinAt(visible.x), last = layout.cabinAt((double) visible.x + visible.width);
+        int count = last - first + 1;
+        boolean changed = lastAnimationView == null || !lastAnimationView.equals(visible)
+                || lastAnimationWidth != getWidth() || lastAnimationHeight != getHeight()
+                || lastFirstCabin != first || lastAnimationY.length != count;
+        if (lastAnimationY.length != count) lastAnimationY = new int[count];
+        long now = wallClock.getAsLong();
+        var view = timeView == null ? null : timeView.get();
+        for (int index = 0; index < count; index++) {
+            int id = first + index;
+            var bounds = layout.cabinBounds(id, positionAt(id, now, view));
+            int y = visible.intersects(bounds) ? bounds.y : Integer.MIN_VALUE;
+            if (lastAnimationY[index] != y) changed = true;
+            lastAnimationY[index] = y;
+        }
+        if (lastAnimationView == null || !lastAnimationView.equals(visible)) lastAnimationView = new Rectangle(visible);
+        lastAnimationWidth = getWidth(); lastAnimationHeight = getHeight(); lastFirstCabin = first;
+        return changed;
+    }
+
+    int cachedAnimationCabins() { requireEdt(); return lastAnimationY.length; }
 
     @Override public Dimension getPreferredScrollableViewportSize() { return new Dimension(600, 320); }
     @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 36; }

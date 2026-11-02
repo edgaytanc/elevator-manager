@@ -1,6 +1,8 @@
 # T60 — Validación y recorrido gráfico de controles
 
-- **Estado:** pendiente de resultados de David.
+- **Estado actual:** T60 aceptada al solicitar David T61. Confirmados commit `6883d66`, 24 pruebas específicas y 910 totales, BUILD SUCCESS y árbol limpio. La captura PAUSED acredita la presentación de ese estado y controles, sin demostrar por sí sola todas las transiciones visuales.
+
+> Se conserva el guion original para el cierre nativo de fase 10; no revoca la aceptación de T60 ni bloquea el inicio autorizado de T61.
 - **Base:** T59 aceptada en `1cd6913`, 886 pruebas totales y Git limpio.
 
 ## Incorporación y pruebas
