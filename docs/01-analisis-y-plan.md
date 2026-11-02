@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–10 cerradas por confirmación de David. T61 registrada en `dbea15a`; contexto previo reporta 16 específicas/926 totales y BUILD SUCCESS. Fase 11 iniciada: T62 especificada documentalmente, pendiente de revisión local; T63–T66 pendientes.
+- **Estado:** fases 1–10 cerradas. Fase 11 en curso: T62 revisada y aprobada por David, commit `5b310e5` y árbol limpio. T63 implementada y comprobada con compilador Java 17 y escenarios independientes; Maven local y aceptación de David pendientes. T64–T66 pendientes.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -295,7 +295,7 @@ elevator-manager/
 
 **Entrada:** base y extras visuales estables. **Salida:** comunicación textual efectiva y documentada. **Dependencias:** fase 10; los contratos pueden diseñarse desde fase 2. **Prioridad:** P1.
 
-- [ ] **T62 — Especificar gramática y semántica del protocolo.** Etiqueta: EXTRA-3. Definir versión, separador, comandos, argumentos, IDs de correlación, generación, errores, aceptación y finalización. **Aceptación:** el documento permite a otra persona construir un emisor/receptor compatible sin leer la implementación.
+- [x] **T62 — Especificar gramática y semántica del protocolo.** Etiqueta: EXTRA-3. Definir versión, separador, comandos, argumentos, IDs de correlación, generación, errores, aceptación y finalización. **Aceptación:** el documento permite a otra persona construir un emisor/receptor compatible sin leer la implementación.
 - [ ] **T63 — Implementar codificador y parser del protocolo.** Etiqueta: EXTRA-3. Convertir comandos tipados a texto y volver a tipos validados. **Aceptación:** round-trip conserva información y mensajes malformados producen errores controlados, sin matar trabajadores.
 - [ ] **T64 — Sustituir la frontera manejador–cabina por mensajes de texto.** Etiqueta: EXTRA-3. Transportar cadenas mediante colas seguras, parsearlas en el trabajador y responder por canal de eventos. **Aceptación:** las órdenes funcionales cruzan realmente la frontera en texto; imprimir una cadena en el log no cuenta.
 - [ ] **T65 — Integrar respuestas, estado y reset.** Etiqueta: EXTRA-3. Relacionar ACK/ERROR/completado/estado con mensaje, cabina y generación; descartar órdenes antiguas. **Aceptación:** ACK significa aceptación, no llegada, y ninguna respuesta obsoleta altera un reset completado.
@@ -602,4 +602,11 @@ Se verifican raster, fuentes, viewport, desplazamiento, repintados, respuesta de
 
 ## Avance T62 — Especificación del protocolo, 2026-11-02
 
-Se inicia fase 11. [05](05-protocolo.md) pasa de propuesta a contrato V1 1.0.0: UUID reales, época inicial 0, gramática de órdenes/respuestas/estado, léxico, correlación, errores, prioridades, retransmisiones y finalización. [Ficha](implementacion/T62-gramatica-y-semantica-protocolo.md) y [validación documental](comprobaciones/T62-validacion-documental.md). T62 queda en revisión documental, sin marcarla terminada anticipadamente. T63 será la siguiente tarjeta tras revisar este contrato. No se modifica Java ni se afirma que exista transporte textual integrado.
+Se inicia fase 11. [05](05-protocolo.md) pasa de propuesta a contrato V1 1.0.0: UUID reales, época inicial 0, gramática de órdenes/respuestas/estado, léxico, correlación, errores, prioridades, retransmisiones y finalización. [Ficha](implementacion/T62-gramatica-y-semantica-protocolo.md) y [validación documental](comprobaciones/T62-validacion-documental.md). La entrega original quedó en revisión documental. Actualización: David la revisó y aprobó, confirmó `5b310e5` y árbol limpio; T62 queda cerrada. En T62 no se modificó Java ni se acreditó transporte textual integrado.
+
+
+## Avance T63 — Codificador y parser V1, 2026-11-02
+
+Se incorporan DTOs inmutables de todas las familias, `ProtocolCodec`, resultado de parseo controlado y puente al subconjunto `Command` existente con fecha explícita del llamador. Se comprueban 76 escenarios independientes y 169 escenarios de regresión seleccionada en sus ejecuciones finales (245 total); se registra un timeout inicial de GUI T60 y su repetición satisfactoria. Compilación real de 125 fuentes sin dependencia JUnit con Java 17; demostración de round-trip ejecutada desde clases y JAR auxiliar. No se ha ejecutado Maven: total esperado 1,002 pruebas (926 previas + 76 nuevas), pendiente de confirmar en Windows.
+
+Ver [implementación](implementacion/T63-codificador-y-parser-protocolo.md), [código completo](implementacion/T63-codigo-completo.md), [validación](comprobaciones/T63-validacion-local.md) y [resultados](comprobaciones/T63-resultados-locales.md). T63 queda implementada, pendiente de validación Maven/aceptación local; T64 no se inicia. Las órdenes del motor conservan sus canales actuales: el extra textual real aún requiere T64–T66.

@@ -3,7 +3,7 @@
 - **Fecha:** 2 de noviembre de 2026, Guatemala.
 - **Fase:** 11 — Protocolo textual, extra 3.
 - **Base:** proyecto completo proporcionado por David, HEAD `dbea15a` (T61). David declara cerradas las fases 1–10. El contexto anterior registra 16 pruebas T61 y 926 totales, BUILD SUCCESS y árbol limpio; estos resultados no son una ejecución nueva.
-- **Estado:** especificación preparada y verificada documentalmente; pendiente de revisión de David. T63 no implementada.
+- **Estado:** cerrada: David revisó y aprobó el contrato; commit `5b310e5`, ocho archivos documentales incorporados y árbol limpio. El resto describe la entrega original T62; T63 se documenta aparte.
 
 ## Resultado
 
@@ -66,3 +66,8 @@ git status --short
 ```
 
 No se crea el commit automáticamente. La siguiente tarea es T63 — Implementar codificador y parser del protocolo.
+
+
+## Confirmación recibida antes de T63
+
+David ejecutó `git diff --check`, staging de docs, comprobación del índice y commit `5b310e5`, y confirmó «Revisada y aprobada». `git status --short` quedó sin salida. El aviso LF/CRLF de una traza T28 fue informativo. Esta confirmación sustituye los pendientes de revisión de la entrega original.

@@ -3,7 +3,7 @@
 - **Proyecto:** Elevator Manager.
 - **Versión:** 1.0.0; contrato normativo T62 de mensajes V1. Contrato de archivo 1.0.0 en 07.
 - **Fecha:** 2026-11-02, Guatemala.
-- **Estado:** especificación T62 lista para revisión; codec T63 y transporte T64–T65 pendientes. El motor actual sigue usando órdenes tipadas.
+- **Estado:** T62 aprobada en `5b310e5`. Codec T63 implementado con validación independiente; Maven/aceptación local pendientes. Transporte T64–T65 pendiente; el motor sigue usando sus canales tipados.
 - **Base:** [02 — Decisiones](02-decisiones.md), [03 — Arquitectura](03-arquitectura.md), [04 — Asignación](04-algoritmo-asignacion.md).
 
 ## 1. Alcance y transporte
@@ -345,3 +345,16 @@ No aplicar simultáneamente varios errores de filas distintas. Ejemplo de preced
 | T66 | Demostración reproducible de integración, errores y reset con mensajes en vuelo. |
 
 T62 satisface la definición documental cuando versión, framing, tipos, aridades, autoridad, identidad, estado y cada resultado permiten construir extremos compatibles sin leer Java. El extra 3 solo se acredita al integrar y demostrar T64–T66. El archivo HALL/CABIN de 07 no admite estas líneas V1 ni sirve como transporte textual entre actores.
+
+
+## 13. Implementación del codec T63
+
+`ProtocolMessage` contiene DTOs inmutables y sin fechas; `ProtocolCodec(config)` expone `encode`, `decode`, `decodeCommand` y `decodeResponse`. La emisión es canónica; la recepción admite los separadores/terminadores definidos en 10.1 y verifica configuración, aridades y coherencia del estado público. Las entradas inválidas retornan `ProtocolDecodeResult.Failure`, sin ejecutar órdenes ni detener un trabajador. `encode` informa `EncodingException` con código estructurado; no trunca mensajes demasiado largos.
+
+El parser aplica los pasos 1–6 de 10.3. Los pasos 7–10 (identidad histórica, rol, época vigente y estado/disponibilidad) pertenecen a la admisión T64–T65. Decodificar RESET con época 0 puede ser sintácticamente válido y aun así ser rechazado al intentar admitirlo en la sesión; `decode` no confirma aceptación. El constructor de DTO valida forma independiente del edificio; el codec añade rangos y tiempos de la configuración. Pisos numéricos canónicos 0 producen INVALID_FLOOR; cabeceras CMD con ID/destinatario 0 son INVALID_FORMAT sin correlación recuperable.
+
+`ProtocolCommands` convierte los tres `Command` actuales a DTO y de vuelta usando `Instant createdAt` explícito del llamador. Conserva UUID y contenido operativo; no inventa fechas de envío, no asigna IDs nuevos ni autoriza ejecución. Los otros controles tienen DTO propio y esperarán su adaptación al motor en T65. El método `Failure.asErrorMessage()` solo construye datos: el receptor de respuestas debe diagnosticar/descartar el fallo y nunca enviarlo automáticamente al otro extremo.
+
+El tamaño se mide en bytes UTF-8 antes de tokenizar, sin construir una copia UTF-8 gigante; después se exige ASCII. Se retienen como máximo 29 tokens de framing para rechazar excesos y no crear un array proporcional al número de espacios. El escritor se detiene al exceder 1 MiB y la vista de diagnóstico se limita a 256 caracteres escapados. Las listas de STATE se copian defensivamente y se exige orden único, sin corregir silenciosamente la entrada.
+
+Hay 76 escenarios nuevos equivalentes bajo JUnit y un main independiente. [Resultados T63](comprobaciones/T63-resultados-locales.md) distingue pruebas ejecutadas, regresión y Maven pendiente. Esta actualización documenta la implementación del contrato 1.0.0 sin cambiar la versión de cable V1. Los ejemplos documentales de 11 continúan como vectores normativos; no se presentan como una traza del motor.

@@ -26,3 +26,8 @@ El script de inspección temporal se ejecutó fuera del repositorio: compara byt
 T62 entrega versión, framing, separadores, tipos/rangos, nueve órdenes, UUID/correlación, época, errores y finalización; los ejemplos permiten construir un emisor/receptor sin consultar Java. Queda pendiente la revisión del contrato por David antes de marcar la tarjeta terminada.
 
 Las 926 pruebas y BUILD SUCCESS corresponden a la validación T61 comunicada en el contexto previo, no a una nueva ejecución aquí. No hay un parser V1 ejecutable, tráfico textual entre actores ni evidencias del extra 3 en esta tarjeta. La matriz PR01–PR16 del plan de pruebas debe convertirse en pruebas reales durante T63–T66. Los ejemplos no son trazas generadas. No se acreditan nuevas mediciones nativas de Windows.
+
+
+## Cierre confirmado por David — 2026-11-02
+
+Revisión y aprobación explícita del contrato; `git diff --check` y `git diff --cached --check` sin errores. Commit `5b310e5`, ocho archivos, 355 inserciones/25 eliminaciones y árbol limpio. T62 queda cerrada; las referencias anteriores a revisión pendiente describen el momento de entrega, no el estado actual.

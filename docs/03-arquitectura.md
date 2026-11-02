@@ -417,3 +417,10 @@ Los ejemplos se guardan una sola vez en src/main/resources/examples/requests y l
 [05 — Protocolo](05-protocolo.md) es la referencia normativa V1. T63 crea DTOs y codec; T64 cruza la frontera con cadenas; T65 enlaza respuestas y controles a la coordinación existente. Hasta entonces `Command` tipado y los canales de control actuales conservan su ejecución. La capa de protocolo no depende de Swing ni reemplaza el reloj monotónico, la publicación de `ElevatorSnapshot`, la herencia Request/HallRequest/CabinRequest ni los hilos existentes.
 
 Identidad de sesión/rol se obtiene del canal privado, no de tokens autodeclarados. El enrutador conserva cmdId/destino para detectar conflictos entre cabinas. El registro de idempotencia del transporte debe sobrevivir reset y conservar el resultado histórico; el ledger de servicio existente no se presume equivalente sin adaptar y probar. STATE es público y compacto: no sirve para reconstruir el planificador o interpolar con precisión. La instantánea de STATUS se conserva para replay y no se instala como actual si su época/revisión quedó obsoleta.
+
+
+## Avance T63 — Codec aislado de la ejecución
+
+`ProtocolMessage` y sus records representan órdenes, ACK, ERROR, terminales, eventos físicos y estado público. `ProtocolDecodeResult` distingue mensaje válido de fallo inmutable y acotado. `ProtocolCodec` solo conserva `SimulationConfig` final, de modo que se comparte entre emisores sin bloqueos ni estado de sesión. Su escritor y parser usan datos locales por llamada; las listas de STATE son copias inmutables.
+
+`ProtocolCommands` adapta `Command.Pickup`, `Command.Destination` y `Command.Reset` sin modificar las clases del motor ni la herencia de solicitudes. El llamador proporciona `createdAt` al reconstruir dominio. Los controles adicionales se conservan como DTO hasta su integración. El codec rechaza formato/dominio; aún no consulta ledger, roles, época actual o `SimulationState`. No existe en esta tarjeta una nueva cola, un hilo por mensaje o un transporte que sustituya al actual. T64–T65 deben consumir el resultado tipado antes de actuar y enlazar correlaciones/confirmaciones con la coordinación existente.

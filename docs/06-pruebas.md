@@ -245,3 +245,10 @@ Esta matriz es planificación de pruebas, no pruebas ejecutadas. Contrato normat
 | PR16 | Regresión de pausa/animación/importación y traza textual real | T66: conserva extras; texto serializado y parseado antes de actuar, no solo impreso. |
 
 Las fechas de Request y el reloj interno no pertenecen al DTO V1. No afirmar round-trip de esos metadatos ni usar igualdad solo por UUID para ocultar diferencias operativas. Los ejemplos 11.1–11.4 son vectores documentales listos para convertir a fixtures en T63; no se han ejecutado como protocolo.
+
+
+## Avance T63 — Codec V1 comprobado
+
+`ProtocolCodecScenarios` y `ProtocolCodecTest` contienen los mismos 76 escenarios. Cubren familias completas, emisión canónica, separación de canales, UUID, límites long/int/época 0, aridades, precedencia de errores de parseo, límites exactos de framing, UTF-8/ASCII, diagnóstico acotado, listas/HELD/NEXT/MODE, inmutabilidad, codificación demasiado grande, puente al dominio y recuperación tras errores. Incluyen 2,000 round-trips pseudoaleatorios de servicio, 5,000 entradas pseudoaleatorias malformadas y mutaciones de mensajes de cada familia. Cuatro hilos comparten el mismo codec y cierran su pool.
+
+Se compilaron 125 fuentes independientes con Java 17 y se ejecutaron 76 escenarios específicos y 169 de regresión seleccionada en sus ejecuciones finales. T60 GUI tuvo un timeout inicial antes de observar MOVING y pasó al repetir la clase completa; queda documentado, sin modificar su prueba o producción. No se declara una suite Maven completa: el total esperado es 1,002, pendiente de Windows. PR09–PR16 siguen requiriendo integración de admisión, transporte y barreras en T64–T66; los DTOs por sí solos no acreditan esos comportamientos. Ver [validación T63](comprobaciones/T63-validacion-local.md).
