@@ -4,6 +4,7 @@ import com.elevatormanager.model.ElevatorPhase;
 import com.elevatormanager.model.SimulationConfig;
 import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.protocol.Command;
+import com.elevatormanager.protocol.ProtocolMessage;
 import com.elevatormanager.simulation.ExecutionEvent;
 import com.elevatormanager.simulation.PlanningSnapshot;
 import java.util.ArrayList;
@@ -169,6 +170,54 @@ public final class HallRequestLedger {
                 }
             }
             default -> { }
+        }
+    }
+
+    private record WireStop(int floor, com.elevatormanager.model.Direction direction) { }
+    private final Map<Integer, WireStop> wireStops = new HashMap<>();
+    private final Map<Integer, Long> wireSequence = new HashMap<>();
+
+    /** Seguimiento de producción T65: solo datos decodificados del canal V1. */
+    public void onProtocol(ProtocolMessage message) {
+        var h = message.header();
+        if (h.epoch() != epoch) { return; }
+        if (message instanceof ProtocolMessage.Move || message instanceof ProtocolMessage.Arrived
+                || message instanceof ProtocolMessage.StoppedAt || message instanceof ProtocolMessage.DirectionChanged) {
+            if (h.id() <= wireSequence.getOrDefault(h.elevatorId(), 0L)) { return; }
+            wireSequence.put(h.elevatorId(), h.id());
+            if (message instanceof ProtocolMessage.StoppedAt stop) {
+                wireStops.put(h.elevatorId(), new WireStop(stop.floor(), stop.service()));
+            } else { wireStops.remove(h.elevatorId()); }
+            return;
+        }
+        var e = attempts.get(new AttemptKey(h.elevatorId(), h.id()));
+        if (e == null || (e.status != DISPATCHED && e.status != ASSIGNED)
+                || e.command.epoch() != h.epoch() || e.command.commandId() != h.id()
+                || e.command.elevatorId() != h.elevatorId()) { return; }
+        if (message instanceof ProtocolMessage.Ack ack) {
+            e.receiverCanonical = ack.canonicalRequestId().orElse(e.command.request().getId());
+            e.status = ASSIGNED; e.detail = "Admisión confirmada; falta servicio compatible.";
+        } else if (message instanceof ProtocolMessage.Error error) {
+            e.rejectedBy.add(h.elevatorId()); retry(e, "ERROR textual: " + error.code());
+        } else if (message instanceof ProtocolMessage.Terminal terminal) {
+            switch (terminal.kind()) {
+                case COMPLETED -> {
+                    WireStop stop = wireStops.get(h.elevatorId());
+                    if (e.status != ASSIGNED || stop == null || stop.floor() != e.request.getFloor()
+                            || stop.direction() != e.request.getDirection()) { return; }
+                    e.status = SERVED; e.detail = "Servicio confirmado en parada compatible.";
+                    active.remove(key(e.request), e);
+                }
+                case CANCELLED -> {
+                    if (terminal.reason().orElseThrow() == ProtocolMessage.CancelReason.SHUTDOWN) {
+                        retry(e, "Cabina cerrada; cancelación textual confirmada.");
+                    } else {
+                        e.status = CANCELLED; e.detail = "Cancelación textual: " + terminal.reason().orElseThrow();
+                        active.remove(key(e.request), e);
+                    }
+                }
+                case FAILED -> { e.status = UNCONFIRMED; e.detail = "FAILED textual; requiere revisión, sin reasignar."; }
+            }
         }
     }
 

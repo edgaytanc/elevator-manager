@@ -3,7 +3,7 @@
 - **Proyecto:** Elevator Manager.
 - **Versión:** 1.0.0; contrato normativo T62 de mensajes V1. Contrato de archivo 1.0.0 en 07.
 - **Fecha:** 2026-11-02, Guatemala.
-- **Estado:** T62 aprobada en `5b310e5`; T63 validada en `6c8d7d3`. T64 implementa buzones de texto y respuestas reales, pendiente de Maven/aceptación local. Integración del seguimiento y controles restantes: T65.
+- **Estado:** T62 aprobada en `5b310e5`, T63 validada en `6c8d7d3` y T64 validada en `36af413`. T65 integra seguimiento, STATE/STATUS y controles con pruebas independientes correctas; Maven local y aceptación pendientes. T66 pendiente.
 - **Base:** [02 — Decisiones](02-decisiones.md), [03 — Arquitectura](03-arquitectura.md), [04 — Asignación](04-algoritmo-asignacion.md).
 
 ## 1. Alcance y transporte
@@ -375,3 +375,26 @@ RESET se admite desde el buzón prioritario, no desde el de servicio. Recibe ACK
 Esta tarjeta preserva el ledger y los controles nativos: todavía no centraliza autoridad de productores ni idempotencia histórica entre épocas/destinatarios. El manejador sigue consumiendo ExecutionEvent para correlacionar admisión/servicio y las barreras de control conservan sus futuros; T65 debe integrar las respuestas de texto, STATE/STATUS, controles restantes y descarte de mensajes obsoletos conforme al contrato. STOP/START/PAUSE/RESUME/STATUS/SHUTDOWN enviados como texto a la cabina se rechazan con INVALID_STATE en T64; la GUI sigue ofreciendo esos controles por su coordinación existente. No se proclama completado todo el protocolo ni T66.
 
 El diagnóstico TextTransportDemo ejecuta actores reales y muestra las respuestas emitidas por el receptor, no solo una llamada directa formateada como log. La línea T64_ORDER es la representación canónica de la orden reportada por el manejador; T64_WIRE son cadenas realmente recibidas del canal de la cabina. Las pruebas alteran el cuerpo antes de enviarlo y verifican el piso atendido, la reconstrucción de objetos y el hilo que procesó la cadena.
+
+
+## 15. Integración de respuestas y generaciones T65
+
+Esta sección actualiza el alcance pendiente de 14 sin cambiar la gramática ni V1. El manejador de producción se suscribe a ProtocolMailbox, decodifica respuestas y aplica HallRequestLedger.onProtocol. onEvent permanece para clientes/escenarios tipados previos, pero no conduce el seguimiento de producción. El par cabina/ID debe corresponder al intento actualmente asignado, además de la época: un ACK de un intento descartado no puede asignar uno nuevo que reutilice la misma entrada lógica.
+
+ACK lleva la llamada a ASSIGNED y no a SERVED. MOVE/ARRIVED/DIRECTION/STOPPED_AT mantienen evidencia secuenciada por cabina; COMPLETED solo sirve una llamada después de ACK y parada del mismo piso/sentido. Repeticiones/terminales ajenos se ignoran. ERROR vuelve a pendiente con rechazo de esa cabina; FAILED conserva UNCONFIRMED sin reasignación automática; una cancelación confirmada por cierre permite la política de reintento ya existente.
+
+El controlador registra cada control antes de encolarlo y recibe sus respuestas a través de un consumidor de texto por sesión. ProtocolReplyTracker exige coincidencia exacta de ID, cabina y época; ACK y STATE no completan un ticket por sí solos. STATUS y RESET requieren su STATE correlacionado antes de COMPLETED. Una prueba final de reset debe indicar piso 1, UP, IDLE, modo NORMAL y listas vacías. La finalización global añade la limpieza del manejador y verifica las snapshots físicas; no cuenta N mensajes cualesquiera como N cabinas.
+
+adoptEpoch invalida solo la caché de estado público vigente, sin borrar las correlaciones históricas pendientes. Una respuesta antigua puede resolver su propio ticket, pero no instalar una snapshot en la época nueva ni activar una transición global sustituida. Revisiones menores se descartan; revisión igual con restante distinto se admite. STATE espontáneo usa ID 0; un STATE positivo no solicitado o anterior al ACK no se instala. Un replay de STATUS terminado devuelve su captura original y no hace retroceder la caché actual.
+
+Los canales managerChannel/controllerChannel son capacidades internas por objeto, cuyo origen no se transmite como un token de confianza. El primero admite PICKUP; el segundo DESTINATION y controles. La composición del controlador comparte ProtocolIdentities entre sus cabinas: un ID de comando aceptado no se reutiliza con otro contenido/cabina/época y se conserva hasta terminar la sesión. El actor comprueba rol, conflicto y replay antes de época/estado. Los adaptadores tipados y de texto heredados se conservan para compatibilidad de escenarios anteriores; la producción utiliza los canales con origen. El ledger del dominio sigue administrando las identidades UUID de las solicitudes.
+
+START, STOP, PAUSE, RESUME, STATUS y SHUTDOWN se procesan en el buzón de controles del actor; RESET sigue siendo prioritario y admite sustitución por una generación posterior sin alterar el tramo físico en curso. Controles sustituidos reciben CANCELLED SUPERSEDED; cerrar cancela trabajo/control pendientes y SHUTDOWN produce su terminal antes de la salida real. El cierre nativo queda como salvaguarda si ya no puede asignarse otro ID, sin fabricar una confirmación textual.
+
+La pausa sigue coordinada por la barrera N+1 y un reloj compartido. Un wake de control permite que el actor lea STATUS dentro del checkpoint, fuera del lock de barrera y sin reanudar el reloj ni admitir servicio. PAUSE completa solo tras la captura congelada; RESUME se confirma tras liberar la barrera. El consumidor de respuestas no participa en la pausa porque debe seguir recibiendo las confirmaciones; no mueve elevadores ni altera el tiempo activo.
+
+queryStatus requiere actores iniciados y es válida en RUNNING, STOPPED, PAUSED y RESET posterior al retorno. Antes del primer Start o después del cierre falla localmente sin dejar futuros pendientes. protocolState ofrece la última proyección recibida de la generación vigente. Ninguna de estas APIs reemplaza ElevatorSnapshot ni el reloj de alta precisión de la animación.
+
+No se añaden hilos por mensaje. Un solo ProtocolResponsePump por sesión lee respuestas, y su join termina antes de CLOSED; las finalizaciones de futuros ocurren fuera de monitores y fuera de los trabajadores de cabina. Las colas de suscripción anteriores no se comparten entre consumidores. Los cambios de ids por controles se reflejan en los escenarios de importación: preparar un archivo no consume IDs; START emite uno por cabina antes de enviar el lote.
+
+[Resultados T65](comprobaciones/T65-resultados-locales.md) contiene pruebas de correlación adversarial, estado viejo, pausa, cierre y reset. La demostración de aceptación final del protocolo completo queda en T66; no se atribuye a T65 el cierre de esa tarjeta ni de toda la fase 11.

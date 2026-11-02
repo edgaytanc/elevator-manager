@@ -49,9 +49,12 @@ public final class TextTransportDemo {
                 TimeUnit.MILLISECONDS.sleep(2);
             }
             receiver.submitText("V1 CMD 42 EPOCH 0 ELEVATOR " + sent.elevatorId() + " FLY");
-            String rejected = receiver.awaitProtocolMessage(LIMIT).orElseThrow();
-            System.out.println("T64_WIRE " + rejected);
-            var message = codec.decodeResponse(rejected).message().orElseThrow();
+            ProtocolMessage message;
+            do {
+                String rejected = receiver.awaitProtocolMessage(LIMIT).orElseThrow();
+                System.out.println("T64_WIRE " + rejected);
+                message = codec.decodeResponse(rejected).message().orElseThrow();
+            } while (!(message instanceof ProtocolMessage.Error));
             if (!(message instanceof ProtocolMessage.Error error)
                     || error.code() != ProtocolMessage.ErrorCode.UNKNOWN_COMMAND || receiver.failure().isPresent()) {
                 throw new IllegalStateException("El receptor no recuperó el mensaje inválido.");

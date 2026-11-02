@@ -332,8 +332,12 @@ public final class SystemControlsScenarios {
         void awaitState(SimulationState state) throws Exception {
             waitFor(() -> controller().state() == state && onEdt(() -> {
                 panel.updateView();
-                return state != SimulationState.RESET && state != SimulationState.STOPPED
-                        || panel.button(Action.START).isEnabled();
+                return switch (state) {
+                    case RUNNING -> panel.button(Action.STOP).isEnabled();
+                    case PAUSED -> panel.button(Action.RESUME).isEnabled();
+                    case RESET, STOPPED -> panel.button(Action.START).isEnabled();
+                    default -> true;
+                };
             }));
         }
         void moving() throws Exception {

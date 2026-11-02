@@ -20,6 +20,7 @@ public final class PauseCoordinator implements AutoCloseable {
     private final boolean[] acknowledged;
     private final boolean[] terminated;
     private long generation;
+    private long controlWake;
     private int count;
     private boolean requested;
     private boolean closed;
@@ -77,7 +78,20 @@ public final class PauseCoordinator implements AutoCloseable {
      */
     public boolean checkpoint(int participant, Runnable onPaused, Runnable onResumed)
             throws InterruptedException {
+        return checkpoint(participant, onPaused, onResumed, () -> true);
+    }
+
+    /** Señal de controles: no libera el reloj ni el reconocimiento de la pausa. */
+    public void wakeControls() {
+        lock.lock();
+        try { controlWake++; changed.signalAll(); }
+        finally { lock.unlock(); }
+    }
+
+    public boolean checkpoint(int participant, Runnable onPaused, Runnable onResumed, java.util.function.BooleanSupplier onControl)
+            throws InterruptedException {
         checkId(participant);
+        Objects.requireNonNull(onControl, "onControl");
         Objects.requireNonNull(onPaused, "onPaused");
         Objects.requireNonNull(onResumed, "onResumed");
         long ticket;
@@ -99,11 +113,20 @@ public final class PauseCoordinator implements AutoCloseable {
         } finally { lock.unlock(); }
         if (ready != null) { ready.complete(null); }
 
-        lock.lockInterruptibly();
-        try {
-            while (!closed && requested && generation == ticket) { changed.await(); }
-            if (closed) { return false; }
-        } finally { lock.unlock(); }
+        while (true) {
+            long observed;
+            lock.lockInterruptibly();
+            try {
+                if (closed) { return false; }
+                if (!requested || generation != ticket) { break; }
+                observed = controlWake;
+            } finally { lock.unlock(); }
+            if (!onControl.getAsBoolean()) { return false; }
+            lock.lockInterruptibly();
+            try {
+                if (!closed && requested && generation == ticket && observed == controlWake) { changed.await(); }
+            } finally { lock.unlock(); }
+        }
         onResumed.run();
         return true;
     }

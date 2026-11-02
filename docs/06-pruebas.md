@@ -261,3 +261,12 @@ TextTransportScenarios y TextTransportTest contienen 48 casos equivalentes. Se e
 Se comprueban reset/Stop/pausa con el trabajo ya recibido por texto, y el cierre tanto de entradas pendientes como de servicio/reset admitidos. Cuatro productores envían simultáneamente sin perder correlaciones y se unen antes de terminar. La demo produce una traza textual real del canal de la cabina y confirma SERVED en el manejador.
 
 Compilación independiente: 128 fuentes, release 17. Ejecución: 48 específicas + 957 previas en 46 grupos = 1,005 escenarios, todos correctos. Se repitieron cierre/reset/eventos después del último ajuste de terminal de cierre; sus casos no se cuentan dos veces. Maven completo no disponible en este entorno: se esperan 48 específicas y 1,050 totales. PR09–PR16 aún necesitan la integración T65 y la demostración T66 para acreditar todo el contrato de respuestas, autoridad y generaciones. Ver [resultados](comprobaciones/T64-resultados-locales.md) y [validación](comprobaciones/T64-validacion-local.md).
+
+
+## Avance T65 — Integración y correlación adversarial
+
+ProtocolIntegrationScenarios y ProtocolIntegrationTest añaden los mismos 64 escenarios. Cubren ACK sin finalización, STATE/terminal prematuros, IDs/cabinas/épocas incorrectas, terminal repetido, errores controlados, futuros públicos cancelados, estado viejo/revisión antigua, replay de STATUS, roles internos, conflictos de IDs entre cabinas, reset sustituido, Stop/Start físico, SHUTDOWN, STATUS en pausa y cierre sin futuros/hilos pendientes.
+
+La regresión previa ejecutó 47 grupos y 1,005 escenarios; con los 64 específicos son 1,069. Se compilaron 133 fuentes independientes con Java 17 real. Los tres conteos previos adaptados conservan el criterio: los controles también consumen IDs/frames; importar no crea órdenes. Dos recorridos GUI ahora esperan el botón habilitado además del estado antes de simular un clic, sin aumentar timeouts ni omitir verificaciones. Se corrigieron las carreras de importación durante START y de consulta contra cierre, y se reejecutaron los grupos afectados.
+
+Maven no está disponible en el entorno de implementación: se esperan 64 específicas y 1,114 totales en Windows, pendientes de confirmar. Demo de pausa/STATUS/reset/cierre desde clases y JAR auxiliar. Ver [resultados](comprobaciones/T65-resultados-locales.md) y [validación](comprobaciones/T65-validacion-local.md). T66 queda pendiente de demostración/aceptación final del protocolo completo.

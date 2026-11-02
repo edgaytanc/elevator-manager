@@ -3,7 +3,7 @@
 - **Versión:** 1.0.1
 - **Fecha:** 19 de octubre de 2026, Guatemala.
 - **Fuente analizada:** `enunciado-java.md`, copia proporcionada `01-enunciado-java.md`.
-- **Estado:** fases 1–10 cerradas. Fase 11: T62 aprobada en `5b310e5`; T63 validada/cerrada en `6c8d7d3`, 76 específicas/1,002 totales, BUILD SUCCESS y árbol limpio. T64 implementada con transporte real de texto y pruebas independientes; Maven y aceptación local pendientes. T65–T66 pendientes.
+- **Estado:** fases 1–10 cerradas. Fase 11: T62, T63 y T64 cerradas; T64 validada en `36af413`, 48 específicas/1,050 totales, BUILD SUCCESS y árbol limpio. T65 implementada y comprobada con escenarios independientes; Maven Windows y aceptación de David pendientes. T66 pendiente.
 - **Objetivo:** construir y entregar un simulador Java que cumpla los requisitos obligatorios y las tres oportunidades de puntos extra.
 
 ## 1. Qué hay que hacer
@@ -297,7 +297,7 @@ elevator-manager/
 
 - [x] **T62 — Especificar gramática y semántica del protocolo.** Etiqueta: EXTRA-3. Definir versión, separador, comandos, argumentos, IDs de correlación, generación, errores, aceptación y finalización. **Aceptación:** el documento permite a otra persona construir un emisor/receptor compatible sin leer la implementación.
 - [x] **T63 — Implementar codificador y parser del protocolo.** Etiqueta: EXTRA-3. Convertir comandos tipados a texto y volver a tipos validados. **Aceptación:** round-trip conserva información y mensajes malformados producen errores controlados, sin matar trabajadores.
-- [ ] **T64 — Sustituir la frontera manejador–cabina por mensajes de texto.** Etiqueta: EXTRA-3. Transportar cadenas mediante colas seguras, parsearlas en el trabajador y responder por canal de eventos. **Aceptación:** las órdenes funcionales cruzan realmente la frontera en texto; imprimir una cadena en el log no cuenta.
+- [x] **T64 — Sustituir la frontera manejador–cabina por mensajes de texto.** Etiqueta: EXTRA-3. Transportar cadenas mediante colas seguras, parsearlas en el trabajador y responder por canal de eventos. **Aceptación:** las órdenes funcionales cruzan realmente la frontera en texto; imprimir una cadena en el log no cuenta.
 - [ ] **T65 — Integrar respuestas, estado y reset.** Etiqueta: EXTRA-3. Relacionar ACK/ERROR/completado/estado con mensaje, cabina y generación; descartar órdenes antiguas. **Aceptación:** ACK significa aceptación, no llegada, y ninguna respuesta obsoleta altera un reset completado.
 - [ ] **T66 — Probar y demostrar el protocolo completo.** Etiqueta: CALIDAD. Cubrir argumentos inválidos, comando desconocido, destinatario inexistente, duplicado y reset con mensajes en vuelo. **Aceptación:** existe una traza textual reproducible y los extras anteriores siguen funcionando después de la integración.
 
@@ -618,4 +618,13 @@ El manejador serializa PICKUP y el controlador DESTINATION; los buzones de servi
 
 ProtocolMailbox transporta respuestas de texto independientes: ACK/ERROR, eventos físicos, COMPLETED y cancelaciones por reset/cierre. El seguimiento del manejador y las barreras globales mantienen sus canales tipados hasta T65. Los controles textuales adicionales aún no integrados se rechazan explícitamente, sin ACK ficticio. Se conservan snapshots y reloj para la GUI.
 
-Se incorporan 48 escenarios T64. Compilación Java 17 de 128 fuentes independientes; 957 escenarios previos en 46 grupos y 48 nuevos correctos (1,005 ejecutados). Demo real desde clases y JAR auxiliar. Maven pendiente: total esperado 1,050 (1,002 base + 48). Ver [implementación](implementacion/T64-frontera-textual-manejador-cabina.md), [código completo](implementacion/T64-codigo-completo.md), [validación](comprobaciones/T64-validacion-local.md) y [resultados](comprobaciones/T64-resultados-locales.md). T64 queda implementada en revisión local, sin marcarla cerrada ni iniciar T65.
+Se incorporan 48 escenarios T64. Compilación Java 17 de 128 fuentes independientes; 957 escenarios previos en 46 grupos y 48 nuevos correctos (1,005 ejecutados). Demo real desde clases y JAR auxiliar. Maven pendiente: total esperado 1,050 (1,002 base + 48). Ver [implementación](implementacion/T64-frontera-textual-manejador-cabina.md), [código completo](implementacion/T64-codigo-completo.md), [validación](comprobaciones/T64-validacion-local.md) y [resultados](comprobaciones/T64-resultados-locales.md). Estado de la entrega original T64: revisión pendiente. Actualización recibida: David confirmó 48 específicas/1,050 totales, sin fallos, errores ni omitidas, BUILD SUCCESS, demo real correcta, commit `36af413` y árbol limpio. T64 queda cerrada.
+
+
+## Avance T65 — Respuestas, estado y reset, 2026-11-02
+
+El manejador consume V1 desde ProtocolMailbox y actualiza admisión/servicio por correlación exacta, sin depender de ExecutionEvent para ese seguimiento. ACK solo asigna; COMPLETED requiere STOPPED_AT compatible. ProtocolReplyTracker correlaciona controles por sesión/ID/cabina/época, exige ACK y terminal y, para STATUS/RESET, STATE correlacionado. La caché pública descarta épocas/revisiones antiguas; una respuesta histórica puede cerrar su futuro sin instalar estado viejo.
+
+El controlador integra START/STOP/PAUSE/RESUME/RESET/STATUS/SHUTDOWN por canales internos de productor; mantiene la barrera nativa del manejador y el reloj común. STATUS en pausa se ejecuta en el actor sin liberar tiempo. Reset espera pruebas textuales de las N cabinas más limpieza del manejador y verifica físicamente 1/UP antes de RESET. Un consumidor de respuestas por sesión se une antes de CLOSED. El registro de IDs de comando persiste entre generaciones y detecta conflictos de contenido/destinatario.
+
+Compilación real Java 17 de 133 fuentes independientes; 64 casos específicos y 1,005 previos en 47 grupos correctos en sus ejecuciones finales (1,069 total). Maven pendiente: 1,114 esperadas (1,050 base + 64). Se conserva herencia real, hilos por actor, logging, importación y GUI. Ver [implementación](implementacion/T65-respuestas-estado-y-reset.md), [código completo](implementacion/T65-codigo-completo.md), [validación](comprobaciones/T65-validacion-local.md) y [resultados](comprobaciones/T65-resultados-locales.md). T65 queda implementada en revisión local; T66 no se inicia ni se declara cerrada la fase 11.

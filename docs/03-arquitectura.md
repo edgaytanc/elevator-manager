@@ -440,3 +440,22 @@ Identidad de sesión/rol se obtiene del canal privado, no de tokens autodeclarad
 El sobre de entrada no contiene Command ni Request. La fecha Instant contextual no decide piso, sentido, destinatario, UUID o época: esos datos salen del parser. Un ResetTicket tipado solo se crea dentro del actor después de validar el texto prioritario. Comparación de PlanningSnapshot y encolado son atómicos bajo el lock local; no hay reserva de una cabina sobre una estimación antigua.
 
 Se mantienen un trabajador por cabina y el manejador. No se crea un hilo por mensaje o respuesta. Suscriptores reciben una copia en su cola por mensaje, sin callbacks desde el motor. Las colas y los resultados conservan el modelo fiable en memoria de la aplicación; no se añade red ni persistencia. T65 unificará respuestas/estado y coordinación global de generaciones; todavía no debe reemplazarse el snapshot de animación por STATE ni suponerse autoridad en un token de entrada.
+
+
+## Avance T65 — Respuestas consumidas y cierre de la generación
+
+| Componente | Responsabilidad actual |
+| --- | --- |
+| ManagerWorker / HallRequestLedger | Decodificar respuestas V1, correlacionar intento vigente y separar admisión de servicio compatible. |
+| ProtocolReplyTracker | Tickets por sesión/ID/cabina/época; ACK/STATE/terminal, historial y caché por generación/revisión. |
+| ProtocolIdentities | IDs de comando globales de sesión; comparación de contenido/destinatario sin callbacks ni acceso a actores. |
+| ElevatorWorker.CommandChannel | Origen de productor por capacidad interna; el texto sigue siendo la fuente de contenido operativo. |
+| ProtocolResponsePump | Un consumidor de texto por sesión; completa futuros fuera de los locks de cabina y se une al cerrar. |
+| SimulationController | Emitir controles con IDs compartidos, esperar respuestas exactas y verificar la barrera física antes de RESET/CLOSED. |
+| PauseCoordinator | Atender wakes de control dentro de pausa, sin liberar reloj ni ejecutar callbacks bajo su lock. |
+
+El manejador deja de depender de su suscripción ExecutionEvent para seguir llamadas; esos eventos siguen disponibles para logging/GUI/compatibilidad. Las snapshots de planificación y de animación conservan su publicación inmutable, precisión y propiedad del actor. STATE solo es una proyección pública resumida.
+
+Arranque asíncrono conserva una sola operación aplicada entre llamadas concurrentes. Mientras espera START se impide confirmar/importar lotes; Stop/Pausa encolados detrás esperan el arranque sin bloquear el coordinador. Stop conserva despachos que ya estaban en vuelo. Reset adopta una generación y descarta respuestas/consultas antiguas para la caché vigente, sin confundir ACK con retorno físico. Consultar durante cierre devuelve error local; las consultas en carrera se resuelven o rechazan, nunca quedan sin completar.
+
+El consumidor protocol-responses es un recurso de sesión, no un nuevo trabajador de movimiento ni un participante de la barrera de pausa. El cerrador une manejador/cabinas, drena/une ese consumidor y después libera los demás recursos antes de publicar CLOSED. Los adaptadores heredados conservan las pruebas y firmas previas; los canales con origen son la ruta de producción.

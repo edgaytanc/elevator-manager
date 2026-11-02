@@ -393,7 +393,7 @@ public final class TextTransportScenarios {
             c.start().get(6, TimeUnit.SECONDS);
             equal(SimulationController.Outcome.ENQUEUED, c.submit(new CabinRequest(id(70), 0, 3, DATE, 2)).get(6, TimeUnit.SECONDS).outcome());
             await(() -> c.snapshot(2).currentFloor() == 3 && c.snapshot(2).phase() == ElevatorPhase.DWELLING);
-            equal(1L, c.protocolReceptions().get(1).frames());
+            equal(2L, c.protocolReceptions().get(1).frames()); // START y destino, ambos textuales.
             check(codec.decodeResponse(mailbox.await(LIMIT).orElseThrow()).message().orElseThrow() instanceof Ack, "ACK de destino normal");
             c.reset().get(6, TimeUnit.SECONDS); equal(SimulationState.RESET, c.state());
             check(c.protocolReceptions().stream().allMatch(s -> s.frames() >= 1), "Cada reset cruza como texto");
@@ -410,7 +410,7 @@ public final class TextTransportScenarios {
             c.resume().get(6, TimeUnit.SECONDS); c.stop().get(6, TimeUnit.SECONDS);
             equal(SimulationState.STOPPED, c.state()); equal(1, c.snapshot(1).cabinRequests().size());
             c.start().get(6, TimeUnit.SECONDS); await(() -> c.snapshot(1).currentFloor() == 5);
-            equal(1L, c.protocolReceptions().get(0).frames());
+            check(c.protocolReceptions().get(0).frames() >= 6, "Controles textuales sin reenviar el destino.");
         } finally { c.closeAsync().get(6, TimeUnit.SECONDS); }
     }
     public static void syntaxCodecNeverGrantsAdmission() {

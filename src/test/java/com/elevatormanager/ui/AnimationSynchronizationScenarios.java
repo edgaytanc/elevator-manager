@@ -211,6 +211,7 @@ public final class AnimationSynchronizationScenarios {
             });
             await(() -> value(() -> panel.controller().isPresent())); var c = onEdt(() -> panel.controller().orElseThrow());
             click(panel, SystemControlPanel.Action.START); await(() -> c.state() == SimulationState.RUNNING);
+            await(() -> value(() -> panel.cabinDashboard().cabin(1).destinationButton(4).isEnabled()));
             edt(() -> panel.cabinDashboard().cabin(1).destinationButton(4).doClick(0));
             await(() -> c.snapshot(1).phase() == ElevatorPhase.MOVING);
             click(panel, SystemControlPanel.Action.PAUSE); await(() -> c.state() == SimulationState.PAUSED);

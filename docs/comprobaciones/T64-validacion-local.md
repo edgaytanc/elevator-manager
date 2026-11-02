@@ -48,3 +48,8 @@ git status --short
 Maven no está disponible en el entorno de implementación. Los 1,005 escenarios independientes no se presentan como ejecución de Surefire ni como las 1,050 pruebas esperadas. Los adaptadores JUnit no se compilaron aquí con sustitutos de sus dependencias; se ejecutarán con Maven en el equipo de David.
 
 El seguimiento del manejador y las barreras conservan canales tipados mientras se integran en T65. STATE/STATUS y los controles adicionales como texto siguen pendientes, al igual que la unificación de autoridad/idempotencia histórica por sesión/generación. La GUI conserva los controles existentes y la publicación temporal precisa. T64 prueba la frontera textual real; no declara todo el extra 3 finalizado ni adelanta la aceptación T65/T66.
+
+
+## Confirmación recibida de David — 2026-11-02
+
+T64 cerrada: TextTransportTest 48 y suite completa 1,050, cero fallos/errores/omitidas y BUILD SUCCESS. Demo T64_TRANSPORT_OK, recepción real en elevator-worker-1, SERVED y recuperación de UNKNOWN_COMMAND. Git sin errores de diff/índice, commit `36af413`, árbol limpio. Los pendientes anteriores describen el estado de la entrega original y quedan sustituidos por esta evidencia.

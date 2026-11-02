@@ -21,6 +21,9 @@ import com.elevatormanager.model.request.HallRequest;
 import com.elevatormanager.model.request.Request;
 import com.elevatormanager.protocol.Command;
 import com.elevatormanager.protocol.ProtocolCodec;
+import com.elevatormanager.protocol.ProtocolMessage;
+import com.elevatormanager.protocol.ProtocolReplyTracker;
+import com.elevatormanager.protocol.ProtocolIdentities;
 import com.elevatormanager.protocol.ProtocolCommands;
 import java.time.Duration;
 import java.util.List;
@@ -79,6 +82,10 @@ public final class SimulationController implements AutoCloseable {
     private final TraceMailbox trace;
     private final SimulationConfig config;
     private final ProtocolCodec protocol;
+    private final ProtocolResponsePump responses;
+    private CompletableFuture<Result> startCompletion;
+    private CompletableFuture<Result> resumeCompletion;
+    private volatile boolean starting;
     private final PauseCoordinator pauseCoordinator;
     private volatile long epoch;
     private final List<ElevatorWorker> elevators;
@@ -123,13 +130,19 @@ public final class SimulationController implements AutoCloseable {
         this.sessionLog = sessionLog;
         this.config = Objects.requireNonNull(config, "config");
         protocol = new ProtocolCodec(config);
+        responses = new ProtocolResponsePump(new ProtocolReplyTracker(config, epoch));
         if (epoch < 0) { throw new IllegalArgumentException("Época negativa."); }
         this.epoch = epoch;
         pauseCoordinator = new PauseCoordinator(Math.addExact(config.elevatorCount(), 1));
         trace = sessionLog.map(SessionLog::mailbox).orElse(TraceMailbox.disabled());
         elevators = java.util.stream.IntStream.rangeClosed(1, config.elevatorCount())
                 .mapToObj(id -> new ElevatorWorker(id, config, epoch, trace, pauseCoordinator)).toList();
-        elevators.forEach(e -> e.subscribeEvents(events));
+        var protocolIdentities = new ProtocolIdentities();
+        elevators.forEach(e -> {
+            e.useProtocolIdentities(protocolIdentities);
+            e.subscribeEvents(events);
+            e.subscribeProtocol(responses.mailbox);
+        });
         manager = new ManagerWorker(config, epoch, elevators, this::nextCommandId, trace, pauseCoordinator);
         sessionLog.ifPresent(log -> {
             log.claim(config.elevatorCount());
@@ -205,44 +218,91 @@ public final class SimulationController implements AutoCloseable {
 
     /** RESET arranca una vez; STOPPED continúa. Start repetido no reenvía trabajo. */
     public CompletableFuture<Result> start() {
-        return schedule(() -> {
+        return scheduleAsync(() -> {
             if (state == SimulationState.RUNNING) {
-                return result(Outcome.UNCHANGED, "La sesión ya está en ejecución.");
+                return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "La sesión ya está en ejecución."));
             }
-            if (state == SimulationState.STOPPED || (state == SimulationState.RESET && workersStarted)) {
-                try {
-                    boolean fromReset = state == SimulationState.RESET;
-                    if (fromReset) { invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente."); }
-                    for (var elevator : elevators) {
-                        if (!elevator.resume()) { throw new IllegalStateException("Cabina no reanudable."); }
-                    }
-                    if (!manager.resume()) { throw new IllegalStateException("Manejador no reanudable."); }
-                    state = SimulationState.RUNNING;
-                    trace.managerState(epoch, "SIMULATION_RUNNING", null);
-                    if (fromReset) { releasePreparedBatch(); }
-                    return result(Outcome.APPLIED, "Continuación de trabajadores y pendientes existentes.");
-                } catch (RuntimeException | Error exception) {
-                    failure = exception;
-                    beginClose();
-                    throw exception;
-                }
+            if (startCompletion != null && !startCompletion.isDone()) {
+                return startCompletion.thenApply(done -> done.outcome() == Outcome.APPLIED
+                        ? result(Outcome.UNCHANGED, "El arranque concurrente ya fue aplicado.") : done);
             }
-            if (state != SimulationState.RESET) {
-                return result(Outcome.REJECTED, "Start no está permitido en " + state);
+            if (state != SimulationState.RESET && state != SimulationState.STOPPED) {
+                return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Start no está permitido en " + state));
             }
+            boolean fromReset = state == SimulationState.RESET;
+            boolean continuing = workersStarted;
+            if (fromReset) { invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente."); }
+            var completion = new CompletableFuture<Result>(); startCompletion = completion;
+            starting = true; completion.whenComplete((done, error) -> starting = false);
+            long expectedEpoch = epoch;
             try {
-                invalidateImport(BatchImportResult.Outcome.REJECTED, "Start invalidó la lectura pendiente.");
                 startWorkersOnce();
-                state = SimulationState.RUNNING;
-                trace.managerState(epoch, "SIMULATION_RUNNING", null);
-                releasePreparedBatch();
-                return result(Outcome.APPLIED, "Trabajadores iniciados una sola vez.");
-            } catch (RuntimeException | Error exception) {
-                failure = exception;
-                beginClose();
-                throw exception;
+                var tickets = controls(ProtocolMessage.ControlKind.START);
+                CompletableFuture.allOf(tickets.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> schedule(() -> {
+                    if (completion.isDone() || epoch != expectedEpoch || closeRequested.get()
+                            || (state != SimulationState.RESET && state != SimulationState.STOPPED)) {
+                        completion.complete(result(Outcome.REJECTED, "Start fuera de vigencia."));
+                    } else if (error != null) {
+                        failure = error; completion.completeExceptionally(error); beginClose();
+                    } else {
+                        if (continuing && !manager.resume()) {
+                            var cause = new IllegalStateException("Manejador no reanudable.");
+                            failure = cause; completion.completeExceptionally(cause); beginClose();
+                            return result(Outcome.REJECTED, "No se pudo reanudar el manejador.");
+                        }
+                        state = SimulationState.RUNNING; trace.managerState(epoch, "SIMULATION_RUNNING", null);
+                        if (fromReset) { releasePreparedBatch(); }
+                        completion.complete(result(Outcome.APPLIED, continuing ? "Continuación de trabajadores y pendientes existentes." : "Trabajadores iniciados una sola vez."));
+                    }
+                    return result(Outcome.UNCHANGED, "Confirmación START procesada.");
+                }));
+            } catch (RuntimeException | Error error) {
+                failure = error; completion.completeExceptionally(error); beginClose();
             }
+            return completion;
         });
+    }
+
+    /** Consulta por texto, correlacionada; no sustituye el snapshot preciso de animación. */
+    public CompletableFuture<ProtocolMessage.State> queryStatus(int elevatorId) {
+        if (closeRequested.get()) { return CompletableFuture.failedFuture(new IllegalStateException("Sesión cerrada.")); }
+        var result = new CompletableFuture<ProtocolMessage.State>();
+        schedule(() -> {
+            if (!workersStarted || elevatorId < 1 || elevatorId > elevators.size() || closeRequested.get()) {
+                result.completeExceptionally(new IllegalStateException("Canal de cabina no disponible."));
+            } else {
+                sendControl(elevatorId, ProtocolMessage.ControlKind.STATUS, epoch).whenComplete((reply, error) -> {
+                    if (error != null) { result.completeExceptionally(error); }
+                    else { result.complete(reply.state().orElseThrow()); }
+                });
+            }
+            return result(Outcome.UNCHANGED, "STATUS solicitado.");
+        }).whenComplete((receipt, error) -> {
+            if (error != null) { result.completeExceptionally(error); }
+            else if (receipt.outcome() == Outcome.REJECTED) { result.completeExceptionally(new IllegalStateException(receipt.detail())); }
+        });
+        return result.copy();
+    }
+
+    public Optional<ProtocolMessage.State> protocolState(int elevatorId) { return responses.tracker.state(elevatorId); }
+
+    private CompletableFuture<ProtocolReplyTracker.Reply> sendControl(int elevatorId,
+            ProtocolMessage.ControlKind kind, long generation) {
+        return sendControl(new ProtocolMessage.Control(new ProtocolMessage.Header(nextCommandId(), generation, elevatorId), kind));
+    }
+
+    private CompletableFuture<ProtocolReplyTracker.Reply> sendControl(ProtocolMessage.Control command) {
+        var future = responses.tracker.register(command);
+        if (!elevators.get(command.header().elevatorId() - 1).controllerChannel().control(protocol.encode(command))) {
+            responses.tracker.fail(command.header().id(), new IllegalStateException("Cabina no disponible."));
+        }
+        return future;
+    }
+
+    private List<CompletableFuture<ProtocolReplyTracker.Reply>> controls(ProtocolMessage.ControlKind kind) {
+        var list = new java.util.ArrayList<CompletableFuture<ProtocolReplyTracker.Reply>>();
+        for (int id = 1; id <= elevators.size(); id++) { list.add(sendControl(id, kind, epoch)); }
+        return list;
     }
 
     /** Progreso de la barrera; leerlo no espera ni consume eventos. */
@@ -251,6 +311,7 @@ public final class SimulationController implements AutoCloseable {
     /** RUNNING -> PAUSING -> PAUSED. El resultado público no cancela la operación privada. */
     public CompletableFuture<Result> pause() {
         return scheduleAsync(() -> {
+            if (starting) { return startCompletion.thenCompose(ignored -> pause()); }
             if (state == SimulationState.PAUSING) { return pauseCompletion; }
             if (state == SimulationState.PAUSED) {
                 return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "La sesión ya está pausada."));
@@ -262,7 +323,11 @@ public final class SimulationController implements AutoCloseable {
             trace.managerState(epoch, "SIMULATION_PAUSING", null);
             var completion = new CompletableFuture<Result>();
             pauseCompletion = completion;
-            var barrier = pauseCoordinator.requestPause();
+            var nativeBarrier = pauseCoordinator.requestPause();
+            var pauseTickets = controls(ProtocolMessage.ControlKind.PAUSE);
+            var allPause = new java.util.ArrayList<CompletableFuture<?>>();
+            allPause.add(nativeBarrier); allPause.addAll(pauseTickets);
+            var barrier = CompletableFuture.allOf(allPause.toArray(CompletableFuture[]::new));
             manager.wakeForPause();
             elevators.forEach(ElevatorWorker::wakeForPause);
             barrier.whenComplete((ignored, error) -> schedule(() -> {
@@ -288,25 +353,29 @@ public final class SimulationController implements AutoCloseable {
 
     /** PAUSED -> RUNNING; libera a todos con el mismo reloj y sin reenviar comandos. */
     public CompletableFuture<Result> resume() {
-        return schedule(() -> {
-            if (state == SimulationState.RUNNING) { return result(Outcome.UNCHANGED, "La sesión ya está activa."); }
-            if (state != SimulationState.PAUSED) { return result(Outcome.REJECTED, "Reanudar requiere PAUSED: " + state); }
-            state = SimulationState.RUNNING;
-            trace.managerState(epoch, "SIMULATION_RUNNING", null);
-            if (!pauseCoordinator.resume()) {
-                var error = new IllegalStateException("Barrera de reanudación incompleta.");
-                failure = error;
-                beginClose();
-                throw error;
-            }
-            trace.managerState(epoch, "SIMULATION_RESUMED", null);
-            return result(Outcome.APPLIED, "Mismos actores, comandos y tiempo restante; ejecución reanudada.");
+        return scheduleAsync(() -> {
+            if (state == SimulationState.RUNNING) { return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "La sesión ya está activa.")); }
+            if (state != SimulationState.PAUSED) { return CompletableFuture.completedFuture(result(Outcome.REJECTED, "Reanudar requiere PAUSED: " + state)); }
+            state = SimulationState.RUNNING; trace.managerState(epoch, "SIMULATION_RUNNING", null);
+            if (!pauseCoordinator.resume()) { throw new IllegalStateException("Barrera de reanudación incompleta."); }
+            var completion = new CompletableFuture<Result>(); resumeCompletion = completion;
+            long generation = epoch;
+            var replies = controls(ProtocolMessage.ControlKind.RESUME);
+            CompletableFuture.allOf(replies.toArray(CompletableFuture[]::new)).whenComplete((ignored, error) -> schedule(() -> {
+                if (state != SimulationState.RUNNING || epoch != generation) {
+                    completion.complete(result(Outcome.REJECTED, "Reanudación sustituida por otro control."));
+                } else if (error != null) { failure = error; completion.completeExceptionally(error); beginClose(); }
+                else { trace.managerState(epoch, "SIMULATION_RESUMED", null); completion.complete(result(Outcome.APPLIED, "Mismos actores, comandos y tiempo restante; ejecución reanudada.")); }
+                return result(Outcome.UNCHANGED, "RESUME procesado.");
+            }));
+            return completion;
         });
     }
 
     /** RUNNING -> STOPPING -> STOPPED; el futuro confirma toda la barrera. */
     public CompletableFuture<Result> stop() {
         return scheduleAsync(() -> {
+            if (starting) { return startCompletion.thenCompose(ignored -> stop()); }
             if (state == SimulationState.STOPPING) { return stopCompletion; }
             if (state == SimulationState.RESET || state == SimulationState.STOPPED) {
                 return CompletableFuture.completedFuture(result(Outcome.UNCHANGED, "No hay avance que detener."));
@@ -321,7 +390,9 @@ public final class SimulationController implements AutoCloseable {
             stopCompletion = completion;
             var acknowledgements = new java.util.ArrayList<CompletableFuture<Void>>();
             acknowledgements.add(manager.requestStop());
-            for (var elevator : elevators) { acknowledgements.add(elevator.requestStop()); }
+            for (int id = 1; id <= elevators.size(); id++) {
+                acknowledgements.add(sendControl(id, ProtocolMessage.ControlKind.STOP, epoch).thenApply(reply -> null));
+            }
             if (fromPause) { supersedePause("STOP"); }
             CompletableFuture.allOf(acknowledgements.toArray(CompletableFuture[]::new))
                     .whenComplete((ignored, error) -> schedule(() -> {
@@ -382,6 +453,7 @@ public final class SimulationController implements AutoCloseable {
                 startWorkersOnce();
                 state = SimulationState.RESETTING;
                 epoch = targetEpoch;
+                responses.tracker.adoptEpoch(targetEpoch);
                 trace.managerState(epoch, "SIMULATION_RESETTING", null);
                 if (stopCompletion != null && !stopCompletion.isDone()) {
                     stopCompletion.complete(result(Outcome.REJECTED, "Stop sustituido por reset global."));
@@ -389,7 +461,15 @@ public final class SimulationController implements AutoCloseable {
                 var managerAck = manager.requestReset(targetEpoch);
                 var cabinAcks = new java.util.ArrayList<CompletableFuture<ElevatorSnapshot>>();
                 for (int i = 0; i < elevators.size(); i++) {
-                    cabinAcks.add(elevators.get(i).requestReset(commands.get(i)));
+                    final int index = i;
+                    var command = (ProtocolMessage.Control) ProtocolCommands.fromDomain(commands.get(i));
+                    cabinAcks.add(sendControl(command).thenApply(reply -> {
+                        var proof = reply.state().orElseThrow();
+                        if (proof.header().epoch() != targetEpoch || proof.header().elevatorId() != index + 1) {
+                            throw new IllegalStateException("Confirmación textual de otra cabina/época.");
+                        }
+                        return elevators.get(index).snapshot();
+                    }));
                 }
                 if (fromPause) { supersedePause("RESET"); }
                 var participants = new java.util.ArrayList<CompletableFuture<?>>();
@@ -454,6 +534,7 @@ public final class SimulationController implements AutoCloseable {
 
     private void startWorkersOnce() {
         if (workersStarted) { return; }
+        responses.start();
         for (var elevator : elevators) {
             if (!elevator.start()) { throw new IllegalStateException("Cabina ya iniciada."); }
         }
@@ -485,7 +566,7 @@ public final class SimulationController implements AutoCloseable {
         }
         if (request instanceof CabinRequest cabin) {
             var command = new Command.Destination(nextCommandId(), cabin.getElevatorId(), cabin);
-            boolean sent = elevators.get(cabin.getElevatorId() - 1).submitText(
+            boolean sent = elevators.get(cabin.getElevatorId() - 1).controllerChannel().send(
                     protocol.encode(ProtocolCommands.fromDomain(command)), cabin.getCreatedAt());
             return new Result(sent ? Outcome.ENQUEUED : Outcome.REJECTED, state,
                     "Envío a cabina; la aceptación y el servicio se notifican por eventos.",
@@ -537,7 +618,7 @@ public final class SimulationController implements AutoCloseable {
     }
 
     private void beginImport(Path path, CompletableFuture<BatchImportResult> completion) {
-        if (!state.allowsRequestImport()) {
+        if (starting || !state.allowsRequestImport()) {
             completion.complete(importRejected("La importación requiere RESET: " + state));
             return;
         }
@@ -572,7 +653,7 @@ public final class SimulationController implements AutoCloseable {
     private void completeImport(PendingImport pending, BatchReadResult parsed) {
         if (pendingImport != pending || pending.generation != importGeneration) { return; }
         pendingImport = null;
-        if (closeRequested.get() || state != SimulationState.RESET || epoch != pending.epoch) {
+        if (closeRequested.get() || starting || state != SimulationState.RESET || epoch != pending.epoch) {
             pending.completion.complete(importRejected("El contexto cambió durante la lectura; lote no aplicado."));
             return;
         }
@@ -718,6 +799,16 @@ public final class SimulationController implements AutoCloseable {
         if (pauseCompletion != null && !pauseCompletion.isDone()) {
             pauseCompletion.complete(result(Outcome.REJECTED, "Pausa interrumpida por cierre."));
         }
+        if (startCompletion != null && !startCompletion.isDone()) {
+            startCompletion.complete(result(Outcome.REJECTED, "Start interrumpido por cierre."));
+        }
+        if (resumeCompletion != null && !resumeCompletion.isDone()) {
+            resumeCompletion.complete(result(Outcome.REJECTED, "Reanudación interrumpida por cierre."));
+        }
+        if (workersStarted) {
+            try { controls(ProtocolMessage.ControlKind.SHUTDOWN); }
+            catch (ArithmeticException exhausted) { failure = exhausted; } // El cierre nativo no depende de otro ID.
+        }
         // Cierre primero la compuerta: ningún checkpoint liberado admite más servicio.
         pauseCoordinator.close();
         manager.close();
@@ -751,6 +842,12 @@ public final class SimulationController implements AutoCloseable {
                     catch (InterruptedException exception) { interrupted = true; }
                 }
             }
+            responses.close();
+            boolean protocolEnded = false;
+            while (!protocolEnded) {
+                try { responses.join(); protocolEnded = true; }
+                catch (InterruptedException exception) { interrupted = true; }
+            }
             boolean importsEnded = false;
             while (!importsEnded) {
                 try { importsEnded = importExecutor.awaitTermination(1, TimeUnit.DAYS); }
@@ -783,7 +880,8 @@ public final class SimulationController implements AutoCloseable {
     public boolean awaitTermination(Duration timeout) throws InterruptedException {
         long budget = checkedNanos(timeout);
         if (budget > 0 && (Thread.currentThread() == coordinatorThread.get()
-                || Thread.currentThread() == shutdownThread || Thread.currentThread() == importThread.get())) {
+                || Thread.currentThread() == shutdownThread || Thread.currentThread() == importThread.get()
+                || responses.isConsumerThread())) {
             throw new IllegalStateException("No esperar el cierre desde un hilo que debe terminarlo.");
         }
         if (!closeRequested.get()) { return false; }

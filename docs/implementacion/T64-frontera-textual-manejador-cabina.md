@@ -3,7 +3,7 @@
 - **Fecha:** 2 de noviembre de 2026, Guatemala.
 - **Fase:** 11 — Protocolo textual, extra 3.
 - **Base aceptada:** T63, commit `6c8d7d3`, 76 específicas/1,002 totales, BUILD SUCCESS, demo correcta y árbol limpio.
-- **Estado:** implementada y verificada con actores reales; Maven Windows y aceptación de David pendientes. T65 no iniciada.
+- **Estado:** cerrada por validación de David en `36af413`: 48 específicas, 1,050 totales, BUILD SUCCESS, demo real correcta y Git limpio. El resto conserva la descripción de la entrega original T64.
 
 ## Resultado
 
@@ -90,3 +90,8 @@ git status --short
 ```
 
 No se realiza el commit automáticamente. La siguiente tarea será T65 — Integrar respuestas, estado y reset.
+
+
+## Cierre recibido antes de T65
+
+David confirmó TextTransportTest con 48 casos y `mvn clean verify` con 1,050, todos sin fallos/errores/omitidas y BUILD SUCCESS. La demo recibió en elevator-worker-1, reconstruyó el Command, confirmó SERVED y recuperó UNKNOWN_COMMAND manteniendo el actor vivo. Commit `36af413`, 18 archivos, 4,881 inserciones/71 eliminaciones y árbol limpio. Esto sustituye los pendientes de validación de la entrega original.

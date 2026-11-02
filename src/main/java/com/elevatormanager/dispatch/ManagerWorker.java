@@ -8,7 +8,7 @@ import com.elevatormanager.protocol.Command;
 import com.elevatormanager.protocol.ProtocolCodec;
 import com.elevatormanager.protocol.ProtocolCommands;
 import com.elevatormanager.simulation.ElevatorWorker;
-import com.elevatormanager.simulation.ExecutionEventMailbox;
+import com.elevatormanager.simulation.ProtocolMailbox;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Comparator;
@@ -56,7 +56,7 @@ public final class ManagerWorker implements AutoCloseable {
     private final ArrayDeque<ResetTicket> resetInbox = new ArrayDeque<>();
     private ResetOperation lastReset;
     private boolean resetHeld;
-    private final ExecutionEventMailbox mailbox = new ExecutionEventMailbox();
+    private final ProtocolMailbox mailbox = new ProtocolMailbox();
     private HallRequestLedger ledger;
     private final BlockingQueue<HallCallSnapshot> updates = new LinkedBlockingQueue<>();
     private final AtomicReference<Map<UUID, HallCallSnapshot>> published = new AtomicReference<>(Map.of());
@@ -119,11 +119,11 @@ public final class ManagerWorker implements AutoCloseable {
             if (lifecycle != Lifecycle.NEW) { return false; }
             lifecycle = Lifecycle.RUNNING;
             try {
-                for (var elevator : elevators) { elevator.subscribeEvents(mailbox); }
+                for (var elevator : elevators) { elevator.subscribeProtocol(mailbox); }
                 thread.start();
             }
             catch (RuntimeException | Error exception) {
-                for (var elevator : elevators) { elevator.unsubscribeEvents(mailbox); }
+                for (var elevator : elevators) { elevator.unsubscribeProtocol(mailbox); }
                 failure = exception;
                 lifecycle = Lifecycle.FAILED;
                 throw exception;
@@ -332,7 +332,7 @@ public final class ManagerWorker implements AutoCloseable {
                 for (int i = 0; i < 256; i++) {
                     var event = mailbox.await(Duration.ZERO);
                     if (event.isEmpty()) { break; }
-                    ledger.onEvent(event.orElseThrow()); publish(); hadEvents = true;
+                    acceptProtocol(event.orElseThrow()); publish(); hadEvents = true;
                 }
                 long now = nowNanos();
                 if (hadEvents || now - lastRetry >= RETRY_NANOS) {
@@ -378,7 +378,7 @@ public final class ManagerWorker implements AutoCloseable {
                 // Los eventos despiertan por cola; el temporizador solo reintenta recibidas.
                 var event = ledger.pending().isEmpty()
                         ? mailbox.await() : mailbox.await(Duration.ofNanos(RETRY_NANOS));
-                if (event.isPresent()) { ledger.onEvent(event.orElseThrow()); publish(); }
+                if (event.isPresent()) { acceptProtocol(event.orElseThrow()); publish(); }
             }
         } catch (InterruptedException exception) {
             failure = exception; Thread.currentThread().interrupt();
@@ -386,7 +386,7 @@ public final class ManagerWorker implements AutoCloseable {
             failure = exception;
         } finally {
             if (pause != null) { pause.participantTerminated(0, failure); }
-            for (var elevator : elevators) { elevator.unsubscribeEvents(mailbox); }
+            for (var elevator : elevators) { elevator.unsubscribeProtocol(mailbox); }
             if (inFlight != null) {
                 results.add(result(inFlight, Outcome.CANCELLED, Optional.empty(),
                         "Fallo durante el procesamiento; revisar el historial publicado."));
@@ -435,6 +435,12 @@ public final class ManagerWorker implements AutoCloseable {
         return result(request, Outcome.PENDING, Optional.empty(), detail);
     }
 
+    private void acceptProtocol(String text) {
+        var parsed = protocol.decodeResponse(text);
+        if (parsed.isSuccess()) { ledger.onProtocol(parsed.message().orElseThrow()); }
+        // Un error de respuesta se descarta; nunca se contesta ERROR a ERROR.
+    }
+
     private Result dispatch(HallRequest request) {
         if (request.getEpoch() != epoch) {
             return result(request, Outcome.REJECTED, Optional.empty(), "Época ajena.");
@@ -463,7 +469,7 @@ public final class ManagerWorker implements AutoCloseable {
             if (!areCurrent(candidates)) { continue; }
             var elevator = elevators.get(selected.elevatorId() - 1);
             var command = new Command.Pickup(commandId, selected.elevatorId(), request);
-            var submitted = elevator.submitTextIfCurrent(protocol.encode(ProtocolCommands.fromDomain(command)),
+            var submitted = elevator.managerChannel().sendIfCurrent(protocol.encode(ProtocolCommands.fromDomain(command)),
                     request.getCreatedAt(), selected.candidate().planning());
             if (submitted == ElevatorWorker.Submission.ENQUEUED) {
                 ledger.dispatched(request.getId(), command);

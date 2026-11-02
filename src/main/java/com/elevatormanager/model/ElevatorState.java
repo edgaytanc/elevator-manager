@@ -77,6 +77,12 @@ public final class ElevatorState {
         revision = nextRevision;
     }
 
+    /** T65: otra generación reemplaza el retorno sin alterar el tramo físico en curso. */
+    public void supersedeReset(long newEpoch) {
+        if (!resetting || newEpoch <= epoch) { throw new IllegalArgumentException("Sustitución de reset inválida."); }
+        revision = Math.incrementExact(revision); epoch = newEpoch;
+    }
+
     /** Confirmar solo tras retorno físico y sin agregar una parada de pasajeros. */
     public void finishReset() {
         if (!resetting || phase != ElevatorPhase.IDLE || currentFloor != 1) {

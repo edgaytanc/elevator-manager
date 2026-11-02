@@ -296,7 +296,7 @@ public final class RequestImportScenarios {
             try(var rig=new Rig(CONFIG)) {
                 get(rig.c.importRequests(file(dir,"a","CABIN 1 2")));get(rig.c.importRequests(file(dir,"b","CABIN 2 3")));
                 get(rig.c.importRequests(file(dir,"bad","HALL 8 UP")));get(rig.c.start());
-                check(rig.c.lastBatchDispatch().orElseThrow().entries().get(0).result().command().orElseThrow().commandId()==1,"Primer comando solo al enviar");
+                check(rig.c.lastBatchDispatch().orElseThrow().entries().get(0).result().command().orElseThrow().commandId()==CONFIG.elevatorCount()+1L,"Importar no consume IDs; START usa uno por cabina antes del primer servicio");
             }
         });
     }

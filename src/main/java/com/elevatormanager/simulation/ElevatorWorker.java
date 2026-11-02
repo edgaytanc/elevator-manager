@@ -13,6 +13,7 @@ import com.elevatormanager.protocol.ProtocolCodec;
 import com.elevatormanager.protocol.ProtocolCommands;
 import com.elevatormanager.protocol.ProtocolDecodeResult;
 import com.elevatormanager.protocol.ProtocolMessage;
+import com.elevatormanager.protocol.ProtocolIdentities;
 import com.elevatormanager.protocol.ProtocolMessage.ErrorCode;
 import java.time.Instant;
 import java.util.HashMap;
@@ -64,8 +65,53 @@ public final class ElevatorWorker implements AutoCloseable {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition available = lock.newCondition();
     /** El sobre solo lleva texto y fecha contextual; nunca el Command original. */
-    private record TextFrame(String text, Instant createdAt) {
+    private enum Origin { LEGACY, MANAGER, CONTROLLER }
+    private record TextFrame(String text, Instant createdAt, Origin origin, boolean control) {
+        TextFrame(String text, Instant date) { this(text, date, Origin.LEGACY, false); }
         TextFrame { Objects.requireNonNull(text, "text"); Objects.requireNonNull(createdAt, "createdAt"); }
+    }
+    private final ArrayDeque<TextFrame> controlInbox = new ArrayDeque<>();
+    private final Map<ProtocolMessage.ControlKind, ProtocolMessage.Control> controls = new HashMap<>();
+    private final Map<Long, ProtocolMessage> admittedProtocol = new HashMap<>();
+    private final Map<WireKey, ProtocolMessage.State> wireStates = new HashMap<>();
+    private ProtocolIdentities identities = new ProtocolIdentities();
+    private Origin processingOrigin = Origin.LEGACY;
+    private boolean protocolStarted;
+
+    /** Capacidad del emisor por objeto interno, nunca un token autodeclarado. */
+    public final class CommandChannel {
+        private final Origin origin;
+        private CommandChannel(Origin origin) { this.origin = origin; }
+        public boolean send(String text, Instant date) {
+            return enqueue(new TextFrame(text, date, origin, false), null, false) == Submission.ENQUEUED;
+        }
+        public Submission sendIfCurrent(String text, Instant date, PlanningSnapshot expected) {
+            Objects.requireNonNull(expected, "expected");
+            return enqueue(new TextFrame(text, date, origin, false), expected, false);
+        }
+        public boolean control(String text) {
+            lock.lock();
+            try {
+                if (lifecycle != Lifecycle.RUNNING) { return false; }
+                controlInbox.addLast(new TextFrame(text, Instant.EPOCH, origin, true));
+                available.signalAll();
+            } finally { lock.unlock(); }
+            if (pause != null) { pause.wakeControls(); }
+            return true;
+        }
+    }
+    private final CommandChannel managerChannel = new CommandChannel(Origin.MANAGER);
+    private final CommandChannel controllerChannel = new CommandChannel(Origin.CONTROLLER);
+    public CommandChannel managerChannel() { return managerChannel; }
+    public CommandChannel controllerChannel() { return controllerChannel; }
+
+    /** Solo composición antes de start; el registro no llama a otros actores. */
+    public void useProtocolIdentities(ProtocolIdentities registry) {
+        lock.lock();
+        try {
+            if (lifecycle != Lifecycle.NEW) { throw new IllegalStateException("La sesión ya comenzó."); }
+            identities = Objects.requireNonNull(registry, "registry");
+        } finally { lock.unlock(); }
     }
     private record ResetFrame(TextFrame frame, CompletableFuture<ElevatorSnapshot> response) { }
     private record Decoded(Command command, Result rejection) { }
@@ -345,7 +391,7 @@ public final class ElevatorWorker implements AutoCloseable {
         try {
             while (true) {
                 if (pause != null && !pause.checkpoint(state.getId(),
-                        () -> publishPauseView(true), () -> publishPauseView(false))) { break; }
+                        () -> publishPauseView(true), () -> publishPauseView(false), this::pausedControls)) { break; }
                 Result result = null;
                 CompletableFuture<Void> stoppedAck = null;
                 List<Runnable> deferred = new ArrayList<>();
@@ -356,7 +402,9 @@ public final class ElevatorWorker implements AutoCloseable {
                     // Cierra la carrera entre checkpoint y adquisición del lock del actor.
                     if (pause != null && pause.isRequested()) { continue; }
                     long now = nowNanos();
-                    if (!resetInbox.isEmpty()) {
+                    if (!controlInbox.isEmpty()) {
+                        processControlFrame(controlInbox.removeFirst(), now, deferred);
+                    } else if (!resetInbox.isEmpty()) {
                         processResetFrame(resetInbox.removeFirst(), now, deferred);
                     } else if (state.isResetting()) {
                         if (state.getPhase() == ElevatorPhase.MOVING) {
@@ -427,6 +475,7 @@ public final class ElevatorWorker implements AutoCloseable {
                 } finally {
                     lock.unlock();
                 }
+                completeControls();
                 flushEvents();
                 for (Runnable action : deferred) { action.run(); }
                 if (stoppedAck != null) { stoppedAck.complete(null); }
@@ -452,6 +501,17 @@ public final class ElevatorWorker implements AutoCloseable {
             } finally {
                 lock.unlock();
             }
+            while (!controlInbox.isEmpty()) {
+                TextFrame frame = controlInbox.removeFirst();
+                var parsed = protocol.decodeCommand(frame.text());
+                if (parsed.message().orElse(null) instanceof ProtocolMessage.Control control
+                        && control.kind() == ProtocolMessage.ControlKind.SHUTDOWN && frame.origin() == Origin.CONTROLLER) {
+                    processingOrigin = frame.origin(); acceptControl(control);
+                } else if (parsed.isSuccess()) {
+                    wire(new ProtocolMessage.Error(parsed.message().orElseThrow().header(), ErrorCode.WORKER_UNAVAILABLE));
+                } else { wire(parsed.failure().orElseThrow().asErrorMessage()); }
+            }
+            cancelControls(ProtocolMessage.CancelReason.SHUTDOWN);
             for (TextFrame frame : abandoned) {
                 rejectAbandoned(frame);
             }
@@ -468,6 +528,8 @@ public final class ElevatorWorker implements AutoCloseable {
                         failure == null ? Optional.of(ProtocolMessage.CancelReason.SHUTDOWN) : Optional.empty(),
                         failure == null ? Optional.empty() : Optional.of(ErrorCode.INTERNAL_ERROR)));
             }
+            ProtocolMessage.Control shutdown = controls.remove(ProtocolMessage.ControlKind.SHUTDOWN);
+            if (shutdown != null) { controlCompleted(shutdown); }
             emit(failure == null ? ExecutionEvent.Type.WORKER_TERMINATED
                     : ExecutionEvent.Type.WORKER_FAILED, nowNanos());
             flushEvents();
@@ -480,6 +542,117 @@ public final class ElevatorWorker implements AutoCloseable {
                 stopConfirmation.completeExceptionally(new IllegalStateException("Cabina terminada antes de confirmar Stop.", failure));
             }
         }
+    }
+
+    private boolean pausedControls() {
+        List<Runnable> deferred = new ArrayList<>();
+        lock.lock();
+        try {
+            while (!controlInbox.isEmpty()) { processControlFrame(controlInbox.removeFirst(), nowNanos(), deferred); }
+            completeControls();
+        } finally { lock.unlock(); }
+        flushEvents();
+        deferred.forEach(Runnable::run);
+        return lifecycle == Lifecycle.RUNNING;
+    }
+
+    private void processControlFrame(TextFrame frame, long now, List<Runnable> deferred) {
+        Decoded decoded = decode(frame);
+        if (decoded.command() instanceof Command.Reset reset) {
+            processReset(new ResetTicket(reset, new CompletableFuture<>()), now, deferred);
+        }
+    }
+
+    private void replayProtocol(ProtocolMessage command) {
+        WireKey key = new WireKey(command.header().epoch(), command.header().id());
+        ProtocolMessage ack = wireAdmissions.get(key);
+        if (ack != null) { wire(ack); }
+        if (wireStates.containsKey(key)) { wire(wireStates.get(key)); }
+        if (wireTerminals.containsKey(key)) { wire(wireTerminals.get(key)); }
+    }
+
+    private boolean acceptControl(ProtocolMessage.Control command) {
+        if (!identities.reserve(command)) { wire(new ProtocolMessage.Error(command.header(), ErrorCode.ID_CONFLICT)); return false; }
+        admittedProtocol.put(command.header().id(), command);
+        controls.put(command.kind(), command);
+        var ack = new ProtocolMessage.Ack(command.header(), ProtocolMessage.AckKind.ACCEPTED, Optional.empty());
+        wireAdmissions.put(new WireKey(command.header().epoch(), command.header().id()), ack); wire(ack);
+        return true;
+    }
+
+    private void handleControl(ProtocolMessage.Control command) {
+        var kind = command.kind();
+        boolean valid = switch (kind) {
+            case STATUS, SHUTDOWN -> true;
+            case START -> !state.isResetting() && ((!protocolStarted && !stopRequested) || stopped && stopRequested);
+            case STOP -> !stopRequested && !state.isResetting();
+            case PAUSE -> pause != null && pause.isRequested();
+            case RESUME -> pause != null && !pause.isRequested() && !stopRequested && !state.isResetting();
+            case RESET -> false;
+        };
+        if (!valid || controls.containsKey(kind)) { wire(new ProtocolMessage.Error(command.header(), ErrorCode.INVALID_STATE)); return; }
+        if (!acceptControl(command)) { return; }
+        switch (kind) {
+            case STATUS -> {
+                controls.remove(kind);
+                if (wireState(command.header())) { controlTerminal(command, ProtocolMessage.TerminalKind.COMPLETED, Optional.empty(), Optional.empty()); }
+                else { controlTerminal(command, ProtocolMessage.TerminalKind.FAILED, Optional.empty(), Optional.of(ErrorCode.MESSAGE_TOO_LONG)); }
+            }
+            case START -> { protocolStarted = true; if (stopRequested) { resume(); } }
+            case STOP -> requestStop();
+            case SHUTDOWN -> { lifecycle = Lifecycle.CLOSING; available.signalAll(); }
+            default -> { }
+        }
+    }
+
+    private void completeControls() {
+        var ready = new ArrayList<ProtocolMessage.Control>();
+        for (var command : controls.values()) {
+            boolean complete = switch (command.kind()) {
+                case START -> !stopRequested && !resumeRequested;
+                case STOP -> stopped;
+                case PAUSE -> pauseView;
+                case RESUME -> !pauseView && pause != null && !pause.isRequested();
+                default -> false;
+            };
+            if (complete) { ready.add(command); }
+        }
+        for (var command : ready) { controls.remove(command.kind()); controlCompleted(command); }
+    }
+
+    private void cancelControls(ProtocolMessage.CancelReason reason) {
+        for (var command : List.copyOf(controls.values())) {
+            if (command.kind() != ProtocolMessage.ControlKind.SHUTDOWN) {
+                controls.remove(command.kind());
+                controlTerminal(command, ProtocolMessage.TerminalKind.CANCELLED, Optional.of(reason), Optional.empty());
+            }
+        }
+    }
+
+    private void controlCompleted(ProtocolMessage.Control command) {
+        if (command.kind() != ProtocolMessage.ControlKind.SHUTDOWN) { wireState(command.header()); }
+        controlTerminal(command, ProtocolMessage.TerminalKind.COMPLETED, Optional.empty(), Optional.empty());
+    }
+    private void controlTerminal(ProtocolMessage.Control command, ProtocolMessage.TerminalKind kind,
+            Optional<ProtocolMessage.CancelReason> reason, Optional<ErrorCode> error) {
+        wire(new ProtocolMessage.Terminal(command.header(), kind, reason, error));
+    }
+
+    private boolean wireState(ProtocolMessage.Header header) {
+        var snapshot = capture(nowNanos()).elevator();
+        var internal = snapshot.cabinRequests().stream().map(Request::getFloor).distinct().sorted().toList();
+        var external = snapshot.hallRequests().stream()
+                .map(r -> new ProtocolMessage.ExternalCall(r.getFloor(), r.getDirection())).distinct()
+                .sorted(java.util.Comparator.comparingInt(ProtocolMessage.ExternalCall::floor)
+                        .thenComparing(ProtocolMessage.ExternalCall::direction)).toList();
+        long nanos = snapshot.remainingNanos();
+        var dto = new ProtocolMessage.State(header, snapshot.revision(), snapshot.currentFloor(), snapshot.nextFloor(),
+                snapshot.direction(), snapshot.phase(), snapshot.suspendedPhase(),
+                snapshot.holdReason().map(r -> ProtocolMessage.HoldReason.valueOf(r.name())),
+                ProtocolMessage.Mode.valueOf(snapshot.mode().name()), nanos == 0 ? 0 : (nanos - 1) / 1_000_000 + 1,
+                internal, external);
+        try { wire(dto); return true; }
+        catch (ProtocolCodec.EncodingException error) { return false; }
     }
 
     private TextFrame encode(Command command) {
@@ -495,8 +668,43 @@ public final class ElevatorWorker implements AutoCloseable {
         ProtocolReception previous = protocolReception.get();
         protocolReception.set(new ProtocolReception(previous.frames() + 1,
                 previous.malformed() + (parsed.isSuccess() ? 0 : 1), Thread.currentThread().getName()));
+        processingOrigin = frame.origin();
         if (parsed.isSuccess()) {
             ProtocolMessage message = parsed.message().orElseThrow();
+            if (frame.origin() != Origin.LEGACY) {
+                boolean authorized = frame.origin() == Origin.MANAGER ? message instanceof ProtocolMessage.Pickup
+                        : !(message instanceof ProtocolMessage.Pickup);
+                if (!authorized) { wire(new ProtocolMessage.Error(message.header(), ErrorCode.UNAUTHORIZED_CONTROL)); return new Decoded(null, null); }
+                if (message.header().elevatorId() != state.getId()) { wire(new ProtocolMessage.Error(message.header(), ErrorCode.UNKNOWN_ELEVATOR)); return new Decoded(null, null); }
+                if (identities.conflicts(message)) { wire(new ProtocolMessage.Error(message.header(), ErrorCode.ID_CONFLICT)); return new Decoded(null, null); }
+                ProtocolMessage previousCommand = admittedProtocol.get(message.header().id());
+                if (previousCommand != null) {
+                    if (!previousCommand.equals(message)) { wire(new ProtocolMessage.Error(message.header(), ErrorCode.ID_CONFLICT)); }
+                    else { replayProtocol(message); }
+                    return new Decoded(null, null);
+                }
+                boolean reset = message instanceof ProtocolMessage.Control c && c.kind() == ProtocolMessage.ControlKind.RESET;
+                boolean shutdown = message instanceof ProtocolMessage.Control c && c.kind() == ProtocolMessage.ControlKind.SHUTDOWN;
+                long expected = state.getEpoch();
+                if (reset && message.header().epoch() == expected) {
+                    wire(new ProtocolMessage.Error(message.header(), ErrorCode.INVALID_STATE)); return new Decoded(null, null);
+                }
+                if (reset && expected < Long.MAX_VALUE) { expected++; }
+                if (!shutdown && message.header().epoch() != expected) {
+                    wire(new ProtocolMessage.Error(message.header(), message.header().epoch() < expected
+                            ? ErrorCode.STALE_EPOCH : ErrorCode.FUTURE_EPOCH)); return new Decoded(null, null);
+                }
+            }
+            if (message instanceof ProtocolMessage.Control control && control.kind() != ProtocolMessage.ControlKind.RESET) {
+                if (!frame.control() || frame.origin() != Origin.CONTROLLER) {
+                    wire(new ProtocolMessage.Error(message.header(), frame.origin() == Origin.MANAGER
+                            ? ErrorCode.UNAUTHORIZED_CONTROL : ErrorCode.INVALID_STATE));
+                } else { handleControl(control); }
+                return new Decoded(null, null);
+            }
+            if (frame.control() && !(message instanceof ProtocolMessage.Control)) {
+                wire(new ProtocolMessage.Error(message.header(), ErrorCode.INVALID_STATE)); return new Decoded(null, null);
+            }
             if (message instanceof ProtocolMessage.Pickup || message instanceof ProtocolMessage.Destination
                     || message instanceof ProtocolMessage.Control control
                     && control.kind() == ProtocolMessage.ControlKind.RESET) {
@@ -569,6 +777,9 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private void wire(ProtocolMessage message) {
+        if (message instanceof ProtocolMessage.State state && state.header().id() > 0) {
+            wireStates.put(new WireKey(state.header().epoch(), state.header().id()), state);
+        }
         if (message instanceof ProtocolMessage.Terminal terminal) {
             wireTerminals.putIfAbsent(new WireKey(terminal.header().epoch(), terminal.header().id()), terminal);
         }
@@ -576,6 +787,7 @@ public final class ElevatorWorker implements AutoCloseable {
     }
 
     private void completed(Command command) {
+        if (command instanceof Command.Reset) { wireState(header(command)); }
         wire(new ProtocolMessage.Terminal(header(command), ProtocolMessage.TerminalKind.COMPLETED,
                 Optional.empty(), Optional.empty()));
     }
@@ -583,6 +795,7 @@ public final class ElevatorWorker implements AutoCloseable {
     /** Admisión del control: cierre > reset > Stop > servicio. Solo escribe el actor. */
     private void processReset(ResetTicket ticket, long now, List<Runnable> deferred) {
         Command.Reset command = ticket.command();
+        Origin resetOrigin = processingOrigin;
         if (command.elevatorId() != state.getId() || !command.validateAgainst(state.getConfig()).isValid()) {
             rejectReset(ticket, "Reset dirigido a otra cabina.", now, deferred);
             return;
@@ -599,10 +812,22 @@ public final class ElevatorWorker implements AutoCloseable {
             }));
             return;
         }
-        if (state.isResetting() || command.epoch() <= state.getEpoch()) {
+        if ((state.isResetting() && processingOrigin == Origin.LEGACY) || command.epoch() <= state.getEpoch()) {
             rejectReset(ticket, "Reset en curso o época no creciente.", now, deferred);
             return;
         }
+        if (processingOrigin != Origin.LEGACY && !identities.reserve(ProtocolCommands.fromDomain(command))) {
+            var rejected = new Result(command, Outcome.REJECTED, "ID de sesión en conflicto.");
+            emitAdmission(rejected, now, ErrorCode.ID_CONFLICT); deferred.add(() -> results.add(rejected));
+            deferred.add(() -> ticket.response().completeExceptionally(new IllegalArgumentException("ID_CONFLICT"))); return;
+        }
+        if (state.isResetting()) {
+            var oldReset = lastReset;
+            wire(new ProtocolMessage.Terminal(header(oldReset.command()), ProtocolMessage.TerminalKind.CANCELLED,
+                    Optional.of(ProtocolMessage.CancelReason.SUPERSEDED), Optional.empty()));
+            deferred.add(() -> oldReset.completion().completeExceptionally(new IllegalStateException("Reset sustituido.")));
+        }
+        cancelControls(ProtocolMessage.CancelReason.SUPERSEDED);
         // Cancelaciones conservan el snapshot y la correlación de la época anterior.
         for (var cancelled : ledger.clearForReset()) {
             eventBatch.add(new ExecutionEvent(++eventSequence, ExecutionEvent.Type.COMMAND_CANCELLED,
@@ -625,12 +850,14 @@ public final class ElevatorWorker implements AutoCloseable {
             var replaced = stopConfirmation;
             deferred.add(() -> replaced.completeExceptionally(new IllegalStateException("Stop sustituido por reset.")));
         }
+        processingOrigin = resetOrigin;
         stopRequested = false;
         stopped = false;
         resumeRequested = false;
         resetHeld = true;
         completedSweep = Optional.empty();
-        state.beginReset(command.epoch());
+        if (state.isResetting()) { state.supersedeReset(command.epoch()); }
+        else { state.beginReset(command.epoch()); }
         lastReset = new ResetOperation(command, new CompletableFuture<>());
         var operation = lastReset;
         deferred.add(() -> operation.completion().whenComplete((snapshot, error) -> {
@@ -689,7 +916,13 @@ public final class ElevatorWorker implements AutoCloseable {
             emitAdmission(rejected, nowNanos());
             return rejected;
         }
+        ProtocolMessage dto = ProtocolCommands.fromDomain(command);
+        if (processingOrigin != Origin.LEGACY && !identities.reserve(dto)) {
+            var rejected = new Result(command, Outcome.REJECTED, "ID de sesión en conflicto.");
+            emitAdmission(rejected, nowNanos(), ErrorCode.ID_CONFLICT); return rejected;
+        }
         CommandLedger.Decision decision = ledger.admit(command);
+        if (processingOrigin != Origin.LEGACY && decision.kind() == CommandLedger.Kind.REJECTED) { identities.release(dto); }
         published.set(capture(nowNanos()));
         Outcome outcome = switch (decision.kind()) {
             case ADDED -> Outcome.ACCEPTED;
@@ -759,6 +992,10 @@ public final class ElevatorWorker implements AutoCloseable {
         if (result.outcome() == Outcome.REJECTED) {
             wire(new ProtocolMessage.Error(header(result.command()), rejection));
         } else {
+            if (processingOrigin != Origin.LEGACY) {
+                ProtocolMessage dto = ProtocolCommands.fromDomain(result.command());
+                identities.reserve(dto); admittedProtocol.put(dto.header().id(), dto);
+            }
             ProtocolMessage ack = wireAdmissions.get(key);
             if (!result.replay() || ack == null) {
                 boolean coalesced = result.outcome() == Outcome.DUPLICATE && !result.replay()
@@ -821,6 +1058,9 @@ public final class ElevatorWorker implements AutoCloseable {
             for (var subscriber : subscribers) { subscriber.publish(event); }
         }
         eventBatch.clear();
+        if (!admittedProtocol.isEmpty() && lifecycle == Lifecycle.RUNNING) {
+            wireState(new ProtocolMessage.Header(0, state.getEpoch(), state.getId()));
+        }
         for (String frame : protocolBatch) {
             protocolOutput.publish(frame);
             for (ProtocolMailbox subscriber : protocolSubscribers) { subscriber.publish(frame); }

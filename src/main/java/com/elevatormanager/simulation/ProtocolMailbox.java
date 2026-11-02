@@ -8,10 +8,18 @@ import java.util.concurrent.TimeUnit;
 
 /** Canal de cadenas con un consumidor lógico; publicar no ejecuta callbacks. */
 public final class ProtocolMailbox {
-    private final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<>();
+    private final LinkedBlockingQueue<Optional<String>> queue = new LinkedBlockingQueue<>();
 
     // Solo los actores de este paquete producen respuestas del receptor.
-    void publish(String frame) { queue.add(Objects.requireNonNull(frame, "frame")); }
+    void publish(String frame) { queue.add(Optional.of(Objects.requireNonNull(frame, "frame"))); }
+
+    /** Señal sin mensaje para entradas/cierre de un actor consumidor. */
+    public void wake() { queue.add(Optional.empty()); }
+
+    public Optional<String> await() throws InterruptedException {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) { throw new IllegalStateException("No bloquear el EDT."); }
+        return queue.take();
+    }
 
     /** ZERO permite sondeo desde EDT. No esperar desde el hilo gráfico. */
     public Optional<String> await(Duration timeout) throws InterruptedException {
@@ -21,6 +29,7 @@ public final class ProtocolMailbox {
         if (nanos > 0 && javax.swing.SwingUtilities.isEventDispatchThread()) {
             throw new IllegalStateException("No bloquear el EDT esperando protocolo.");
         }
-        return Optional.ofNullable(queue.poll(nanos, TimeUnit.NANOSECONDS));
+        var frame = queue.poll(nanos, TimeUnit.NANOSECONDS);
+        return frame == null ? Optional.empty() : frame;
     }
 }
